@@ -1,0 +1,115 @@
+with tf.variable_scope('generator'):
+    self.edges_logits, self.nodes_logits = self.decoder(self.embeddings, decoder_units, vertexes, edges, nodes, training=self.training, dropout_rate=self.dropout_rate)
+
+#argumentExplained
+#self.decoder(embeddings = model.sample_z(batch_dim), decoder_units=(128, 256, 512), vertexes=data.vertexes, edges=data.bond_num_types, nodes=data.atom_num_types, training=, dropout_rate=)
+
+===========MODEL PART==============
+def multi_dense_layers(inputs, units, training, activation=None, dropout_rate=0.):
+    hidden_tensor = inputs
+    for u in units:
+        hidden_tensor = tf.layers.dense(hidden_tensor, units=u, activation=activation)
+        hidden_tensor = tf.layers.dropout(hidden_tensor, dropout_rate, training=training)
+
+    return hidden_tensor
+
+def decoder_adj(inputs, units, vertexes, edges, nodes, training, dropout_rate=0.):
+    output = multi_dense_layers(inputs, units, activation=tf.nn.tanh, dropout_rate=dropout_rate, training=training)
+
+    with tf.variable_scope('edges_logits'):
+        edges_logits = tf.reshape(tf.layers.dense(inputs=output, units=edges * vertexes * vertexes, activation=None), (-1, edges, vertexes, vertexes))
+        edges_logits = tf.transpose((edges_logits + tf.matrix_transpose(edges_logits)) / 2, (0, 2, 3, 1))
+        edges_logits = tf.layers.dropout(edges_logits, dropout_rate, training=training)
+
+    with tf.variable_scope('nodes_logits'):
+        nodes_logits = tf.layers.dense(inputs=output, units=vertexes * nodes, activation=None)
+        nodes_logits = tf.reshape(nodes_logits, (-1, vertexes, nodes))
+        nodes_logits = tf.layers.dropout(nodes_logits, dropout_rate, training=training)
+
+    return edges_logits, nodes_logits
+=========OPTIMIZER PART===========
+self.logits_fake, self.features_fake = self.D_x((self.edges_hat, None, self.nodes_hat), units=discriminator_units)
+
+self.value_logits_fake = self.V_x((self.edges_hat, None, self.nodes_hat), units=discriminator_units)
+
+            self.loss_RL = - model.value_logits_fake
+            self.loss_G = - model.logits_fake
+            self.loss_G = tf.reduce_sum(self.loss_F) if feature_matching else tf.reduce_mean(self.loss_G)#feature_matching is not for everytime
+
+            self.train_step_G = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(
+                loss=tf.cond(tf.greater(self.la, 0), lambda: self.la * self.loss_G, lambda: 0.) + tf.cond(
+                    tf.less(self.la, 1), lambda: (1 - self.la) * alpha * self.loss_RL, lambda: 0.),
+                var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator'))
+
+
+def train_fetch_dict(i, steps, epoch, epochs, min_epochs, model, optimizer):
+    a = [optimizer.train_step_G] if i % n_critic == 0 else [optimizer.train_step_D]
+    b = [optimizer.train_step_V] if i % n_critic == 0 and la < 1 else []
+    return a + b
+
+====================================
+====================================
+
+===========MODEL PART==============
+    def D_x(self, inputs, units):
+        with tf.variable_scope('discriminator', reuse=tf.AUTO_REUSE):
+            outputs0 = self.discriminator(inputs, units=units[:-1], training=self.training,
+                                          dropout_rate=self.dropout_rate)
+
+            outputs1 = multi_dense_layers(outputs0, units=units[-1], activation=tf.nn.tanh, training=self.training,
+                                          dropout_rate=self.dropout_rate)
+
+            if self.batch_discriminator:
+                outputs_batch = tf.layers.dense(outputs0, units[-2] // 8, activation=tf.tanh)
+                outputs_batch = tf.layers.dense(tf.reduce_mean(outputs_batch, 0, keep_dims=True), units[-2] // 8,
+                                                activation=tf.nn.tanh)
+                outputs_batch = tf.tile(outputs_batch, (tf.shape(outputs0)[0], 1))
+
+                outputs1 = tf.concat((outputs1, outputs_batch), -1)
+
+            outputs = tf.layers.dense(outputs1, units=1)
+
+        return outputs, outputs1
+
+#argumentExplained
+#self.discriminator(inputs = variable, discriminator_units=((128, 64), 128, (128, 64)), training=, dropout_rate=)
+
+def graph_convolution_layer(inputs, units, training, activation=None, dropout_rate=0.):
+    adjacency_tensor, hidden_tensor, node_tensor = inputs
+    adj = tf.transpose(adjacency_tensor[:, :, :, 1:], (0, 3, 1, 2))
+    annotations = tf.concat((hidden_tensor, node_tensor), -1) if hidden_tensor is not None else node_tensor
+    output = tf.stack([tf.layers.dense(inputs=annotations, units=units) for _ in range(adj.shape[1])], 1)
+    output = tf.matmul(adj, output)
+    output = tf.reduce_sum(output, 1) + tf.layers.dense(inputs=annotations, units=units)
+    output = activation(output) if activation is not None else output
+    output = tf.layers.dropout(output, dropout_rate, training=training)
+    return output
+
+def multi_graph_convolution_layers(inputs, units, training, activation=None, dropout_rate=0.):
+    adjacency_tensor, hidden_tensor, node_tensor = inputs
+    for u in units:
+        hidden_tensor = graph_convolution_layer(inputs=(adjacency_tensor, hidden_tensor, node_tensor),units=u, activation=activation, dropout_rate=dropout_rate,
+                                                training=training)
+    return hidden_tensor
+
+def graph_aggregation_layer(inputs, units, training, activation=None, dropout_rate=0.):
+    i = tf.layers.dense(inputs, units=units, activation=tf.nn.sigmoid)
+    j = tf.layers.dense(inputs, units=units, activation=activation)
+    output = tf.reduce_sum(i * j, 1)
+    output = activation(output) if activation is not None else output
+    output = tf.layers.dropout(output, dropout_rate, training=training)
+    return output
+
+#discriminator
+def encoder_rgcn(inputs, units, training, dropout_rate=0.):
+    graph_convolution_units, auxiliary_units = units
+
+    with tf.variable_scope('graph_convolutions'):
+        output = multi_graph_convolution_layers(inputs, graph_convolution_units, activation=tf.nn.tanh, dropout_rate=dropout_rate, training=training)
+
+    with tf.variable_scope('graph_aggregation'):
+        _, hidden_tensor, node_tensor = inputs
+        annotations = tf.concat((output, hidden_tensor, node_tensor) if hidden_tensor is not None else (output, node_tensor), -1)
+        output = graph_aggregation_layer(annotations, auxiliary_units, activation=tf.nn.tanh, dropout_rate=dropout_rate, training=training)
+    return output
+
