@@ -1,0 +1,24 @@
+WARNING:tensorflow:From /home/sangrak/anaconda3/envs/anytime/lib/python3.6/site-packages/tensorflow_core/python/compat/v2_compat.py:65: disable_resource_variables (from tensorflow.python.ops.variable_scope) is deprecated and will be removed in a future version.
+Instructions for updating:
+non-resource variables are not supported in the long term
+2020-01-27 17:37:49.080623: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcuda.so.1
+2020-01-27 17:37:49.112919: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1618] Found device 0 with properties: 
+name: Tesla V100-DGXS-32GB major: 7 minor: 0 memoryClockRate(GHz): 1.53
+pciBusID: 0000:07:00.0
+2020-01-27 17:37:49.113087: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcudart.so.10.0
+2020-01-27 17:37:49.114297: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcublas.so.10.0
+2020-01-27 17:37:49.115356: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcufft.so.10.0
+2020-01-27 17:37:49.115613: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcurand.so.10.0
+2020-01-27 17:37:49.117038: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcusolver.so.10.0
+2020-01-27 17:37:49.118135: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcusparse.so.10.0
+2020-01-27 17:37:49.121643: I tensorflow/stream_executor/platform/default/dso_loader.cc:44] Successfully opened dynamic library libcudnn.so.7
+2020-01-27 17:37:49.126297: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1746] Adding visible gpu devices: 0
+current pid: 39222
+should be ok...right?
+start loading train data
+Traceback (most recent call last):
+  File "molganMain.py", line 191, in <module>
+    batch_discriminator=False)
+  File "/home/sangrak/gan1/gans/models/GraphGANModel.py", line 28, in __init__
+    self.training = tf.placeholder_with_default(False, shape=())
+AttributeError: module 'tensorflow' has no attribute 'placeholder_with_default'

@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from trainer import Trainer#not called while making training works
+#from trainer import Trainer#not called while making training works
 from models.GraphGANModel import GraphGANModel
 from models.layers import encoder_rgcn, decoder_adj
 from optimizer import GraphGANOptimizer
@@ -69,19 +69,19 @@ train_y = np.asarray(train_y, dtype=np.int32).reshape(-1)
 train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, atomsize, lensize)
 train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(batch_dim)
 
-valid_x = np.asarray(valid_x, dtype=np.int32).reshape(-1)
-valid_y = np.asarray(valid_y, dtype=np.float32).reshape(-1, atomsize, lensize)
+valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
+valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, atomsize, lensize)
 valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(batch_dim)
 steps = (len(train_y) // batch_dim)
 
 
 def train_fetch_dict(i, _optimizer):
     a = [_optimizer.train_step_G] if i % n_critic == 0 else [_optimizer.train_step_D]
-    b = [_optimizer.train_step_V] if i % n_critic == 0 and la < 1 else []
-    return a + b
+    #b = [_optimizer.train_step_V] if i % n_critic == 0 and la < 1 else []
+    return a# + b
 
 
-def train_feed_dict(i, train_x, train_y, _epoch, _model, _optimizer, _batch_dim, _dropout):
+def train_feed_dict(inputX, i, train_x, train_y, _epoch, _model, _optimizer, _batch_dim, _dropout):
     embeddings = _model.sample_z(_batch_dim)
     if la < 1:
         if i % n_critic == 0:
@@ -91,7 +91,7 @@ def train_feed_dict(i, train_x, train_y, _epoch, _model, _optimizer, _batch_dim,
             # lga = np.argmax(lga, axis=-1)
             # newmols = [data.matrices2mol(n_, e_, strict=True) for n_, e_ in zip(n, e)]
             # rewardF = reward(newmols, train_y)
-            feed_dict = {_model.input2gen: train_x,
+            feed_dict = {_model.input2gen: inputX,
                          _model.embeddings: embeddings,
                          # _model.rewardR: rewardR,
                          # _model.rewardF: rewardF,
@@ -99,13 +99,13 @@ def train_feed_dict(i, train_x, train_y, _epoch, _model, _optimizer, _batch_dim,
                          _model.dropout_rate: _dropout,
                          _optimizer.la: la if _epoch > 0 else 1.0}
         else:
-            feed_dict = {_model.input2gen: train_x,
+            feed_dict = {_model.input2gen: inputX,
                          _model.embeddings: embeddings,
                          _model.training: True,
                          _model.dropout_rate: _dropout,
                          _optimizer.la: la if _epoch > 0 else 1.0}
     else:
-        feed_dict = {_model.input2gen: train_x,
+        feed_dict = {_model.input2gen: inputX,
                      _model.embeddings: embeddings,
                      _model.training: True,
                      _model.dropout_rate: _dropout,
@@ -197,15 +197,15 @@ session = tf.Session()
 session.run(tf.global_variables_initializer())
 
 
-def train_step(_step, _epoch, _model, _optimizer, _batch_dim, _dropout):
+def train_step(inputX, inputY, _step, _epoch, _model, _optimizer, _batch_dim, _dropout):
     return session.run(train_fetch_dict(_step, _optimizer),
-                       feed_dict=train_feed_dict(_step, _epoch, _model, _optimizer, _batch_dim, _dropout))
+                       feed_dict=train_feed_dict(inputX, _step, _epoch, _model, _optimizer, _batch_dim, _dropout))
 
 
 start_time = time.time()
 
 for epoch in range(epochs + 1):
     if epoch < epochs:
-        for step in range(steps):
-            train_step(steps * epoch + step, epoch, model, optimizer, batch_dim, dropout)
+        for step, (X, Y) in enumerate(train_tf):
+            train_step(X, Y, steps * epoch + step, epoch, model, optimizer, batch_dim, dropout)
 

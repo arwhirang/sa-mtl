@@ -25,11 +25,12 @@ class GraphGANModel(object):
         soft_gumbel_softmax = False
         hard_gumbel_softmax = False
 
-        self.training = tf.placeholder_with_default(False, shape=())
-        self.dropout_rate = tf.placeholder_with_default(0., shape=())
-        self.soft_gumbel_softmax = tf.placeholder_with_default(soft_gumbel_softmax, shape=())
-        self.hard_gumbel_softmax = tf.placeholder_with_default(hard_gumbel_softmax, shape=())
-        self.temperature = tf.placeholder_with_default(1., shape=())
+        self.training = tf.placeholder(dtype=tf.bool, shape=())
+        self.dropout_rate = tf.placeholder(dtype=tf.float, shape=())
+
+        self.soft_gumbel_softmax = tf.placeholder(soft_gumbel_softmax, shape=())
+        self.hard_gumbel_softmax = tf.placeholder(hard_gumbel_softmax, shape=())
+        self.temperature = tf.placeholder(1., shape=())
 
         self.input2gen = tf.placeholder(dtype=tf.int64, shape=(None, atomsize, lensize))
         self.embeddings = tf.placeholder(dtype=tf.float32, shape=(None, embedding_dim))#initial noise
