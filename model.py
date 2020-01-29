@@ -58,7 +58,7 @@ class RNN(object):
             o_t = self.g_output_unit(h_t)
             sample = samples.read(i)
             o_cumsum = _cumsum(o_t, self.num_emb)  # prepare for sampling
-            next_token = tf.compat.v1.to_int32(tf.math.reduce_min(tf.where(sample < o_cumsum)))  # sample
+            next_token = tf.cast(tf.math.reduce_min(tf.where(sample < o_cumsum)), tf.int32)  # sample
             x_tp1 = tf.gather(self.g_embeddings, next_token)
             gen_o = gen_o.write(i, tf.gather(o_t, next_token))  # we only need the sampled token's probability
             gen_x = gen_x.write(i, next_token)  # indices, not embeddings
@@ -144,7 +144,7 @@ class RNN(object):
             logits=self.d_real_predictions, labels=tf.ones([self.sequence_length])))
 
         # calculate generator rewards and loss
-        decays = tf.math.exp(tf.math.log(self.reward_gamma) * tf.compat.v1.to_float(tf.range(self.sequence_length)))
+        decays = tf.math.exp(tf.math.log(self.reward_gamma) * tf.cast(tf.range(self.sequence_length)), dtype=tf.float32)
         rewards = _backwards_cumsum(decays * tf.math.sigmoid(self.d_gen_predictions), self.sequence_length)
         normalized_rewards = rewards / _backwards_cumsum(decays, self.sequence_length) - self.expected_reward
 
@@ -153,7 +153,7 @@ class RNN(object):
 
         # pretraining loss
         self.pretrain_loss = (-tf.math.reduce_sum(
-            tf.one_hot(tf.compat.v1.to_int64(self.x), self.num_emb, 1.0, 0.0) * tf.math.log(self.g_predictions)), self.sequence_length)
+            tf.one_hot(tf.cast(self.x, tf.int64), self.num_emb, 1.0, 0.0) * tf.math.log(self.g_predictions)), self.sequence_length)
 
         # training updates
         d_opt = self.d_optimizer(self.learning_rate)
