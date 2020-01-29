@@ -27,14 +27,14 @@ class RNN(object):
         self.d_params = []
         self.expected_reward = tf.Variable(tf.zeros([self.sequence_length]))
 
-        with tf.variable_scope('generator'):
+        with tf.compat.v1.variable_scope('generator'):
             self.g_embeddings = tf.Variable(self.init_matrix([self.num_emb, self.emb_dim]))
             self.g_params.append(self.g_embeddings)
             self.g_recurrent_unit = self.create_recurrent_unit(self.g_params)  # maps h_tm1 to h_t for generator
             self.g_output_unit = self.create_output_unit(self.g_params,
                                                          self.g_embeddings)  # maps h_t to o_t (output token logits)
 
-        with tf.variable_scope('discriminator'):
+        with tf.compat.v1.variable_scope('discriminator'):
             self.d_embeddings = tf.Variable(self.init_matrix([self.num_emb, self.emb_dim]))
             self.d_params.append(self.d_embeddings)
             self.d_recurrent_unit = self.create_recurrent_unit(self.d_params)  # maps h_tm1 to h_t for discriminator
@@ -153,7 +153,7 @@ class RNN(object):
 
         # pretraining loss
         self.pretrain_loss = (-tf.math.reduce_sum(
-            tf.one_hot(tf.to_int64(self.x), self.num_emb, 1.0, 0.0) * tf.math.log(self.g_predictions)), self.sequence_length)
+            tf.one_hot(tf.compat.v1.to_int64(self.x), self.num_emb, 1.0, 0.0) * tf.math.log(self.g_predictions)), self.sequence_length)
 
         # training updates
         d_opt = self.d_optimizer(self.learning_rate)
