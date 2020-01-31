@@ -4,7 +4,6 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 #     !pip install tf-nightly
 # except Exception:
 #     pass
-import tensorflow_datasets as tfds
 import tensorflow as tf
 
 import time
@@ -32,19 +31,19 @@ else:
 
 parser = argparse.ArgumentParser(description='CNN fingerprint')
 parser.add_argument('--batchsize', '-b', type=int, default=32, help='Number of moleculars in each mini-batch')
-parser.add_argument('--epochs', '-e', type=int, default=1, help='Number of sweeps over the dataset to train')
+parser.add_argument('--epochs', '-e', type=int, default=10, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
-parser.add_argument('--atomsize', '-a', type=int, default=400, help='max length of smiles')
+parser.add_argument('--seq_size', '-a', type=int, default=200, help='max length of smiles')
 parser.add_argument('--num_layers', type=int, default=6, help='No. of hidden perceptron')
 parser.add_argument('--d_model', type=int, default=512, help='No. of hidden perceptron')
 parser.add_argument('--dff', type=int, default=2048, help='No. of hidden perceptron')
 parser.add_argument('--num_heads', type=int, default=8, help='No. of hidden perceptron')
 parser.add_argument('--dropout_rate', type=int, default=0.1, help='No. of hidden perceptron')
-parser.add_argument('--n_hid', type=int, default=264, help='No. of hidden perceptron')
+parser.add_argument('--max_vocab_size', type=int, default=1026, help='No. of output perceptron (class)')
+
+parser.add_argument('--n_hid', type=int, default=256, help='No. of hidden perceptron')
 parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
 args = parser.parse_args()
-# input_vocab_size = tokenizer_pt.vocab_size + 2
-# target_vocab_size = tokenizer_en.vocab_size + 2
 """
 examples, metadata = tfds.load('ted_hrlr_translate/pt_to_en', with_info=True, as_supervised=True)
 train_examples, val_examples = examples['train'], examples['validation']
@@ -87,47 +86,51 @@ val_dataset = val_dataset.padded_batch(BATCH_SIZE)
 pt_batch, en_batch = next(iter(val_dataset))
 """
 
+print('start loading data')
+dataX = np.load('tox21_fp.npy')#7439, 1024
+dataY_concat  = np.load('tox21_Y.npy', allow_pickle=True)#12, 7439
+index = np.load('tox21_index.npy', allow_pickle=True)#12, 7439 <= 7439 is just for the first dataset - every dataset has different size.
+print("dataX.shape:", dataX.shape)#8014, 1024
 
-# detaset function definition
-def random_list(x, seed=0):
+dataX3 = [dataX[i] for i in index[2]]#NR-AR
+
+
+def prepro_X(inpX):
+    data_x = []
+    for i in range(len(inpX)):
+        fp = [0] * args.seq_size
+        n_ones = 0
+        for j in range(1024):#inpX shape = variable, 1024
+            if inpX[i][j] == 1:
+                fp[n_ones] = j + 1
+                n_ones += 1
+        data_x.append(fp)
+    return np.array(data_x, dtype=np.int32)#variable, 200
+
+
+def prepro_Y(inpY):
+    #data_y = [ele for ele in inpY]
+    data_y = []
+    for i in range(len(inpY)):
+        data_y.append([inpY[i]])
+    return np.array(data_y, dtype=np.int32)#variable
+
+
+_dataX3, _dataY3 = prepro_X(dataX3), prepro_Y(dataY_concat[2])#NR-AR
+train_x3, test_x3, train_y3, test_y3 = train_test_split(_dataX3, _dataY3, test_size=0.1)
+train_x3, valid_x3, train_y3, valid_y3 = train_test_split(train_x3, train_y3, test_size=0.1111)
+
+
+def random_list(x, y, seed=0):
     np.random.seed(seed)
     np.random.shuffle(x)
+    np.random.seed(seed)
+    np.random.shuffle(y)
 
 
-def makeData(proteinName):
-    # load data =========================================
-    print('start loading train data')
-    afile = 'TOX21/' + proteinName + '_wholetraining.smiles'
-    smi = Chem.SmilesMolSupplier(afile, delimiter=' ', titleLine=False)  # smi var will not be used afterwards
-    mols = [mol for mol in smi if mol is not None]
-
-    # Make Feature Matrix ===============================
-    F_list, T_list = [], []
-    for mol in mols:
-        if len(Chem.MolToSmiles(mol, kekuleSmiles=True, isomericSmiles=True)) > args.atomsize:
-            print("too long mol was ignored")
-        else:
-            F_list.append(mol_to_feature(mol, -1, args.atomsize))
-            T_list.append(mol.GetProp('_Name'))
-
-    # Setting Dataset to model ==========================
-    random_list(F_list)
-    random_list(T_list)
-
-    train_x, test_x, train_y, test_y = train_test_split(F_list, T_list, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
-
-    train_y = np.asarray(train_y, dtype=np.int32).reshape(-1, 1)
-    train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, args.atomsize, 42)  # 42 is lensize
-    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1, 1)
-    valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize, 42)  # 42 is lensize
-    valid_tf = tf.data.Dataset.from_tensors((valid_x, valid_y))  # no batch for validation sets
-    return train_tf, valid_tf
-
-
-train_tf1, valid_tf1 = makeData("NR-AR")
-
+random_list(train_x3, train_y3)
+train_tf3 = tf.data.Dataset.from_tensor_slices((train_x3, train_y3)).batch(32)#x shape (batch,200)
+valid_tf3 = tf.data.Dataset.from_tensors((valid_x3, valid_y3))
 
 def scaled_dot_product_attention(q, k, v, mask):
     """Calculate the attention weights.
@@ -263,16 +266,18 @@ def positional_encoding(position, d_model_):
 
 
 class Encoder(tf.keras.layers.Layer):
-    def __init__(self, num_layers_, d_model_, num_heads_, dff_, input_vocab_size_, maximum_position_encoding, rate=0.1):
+    def __init__(self, num_layers_, d_model_, num_heads_, dff_, maximum_position_encoding, rate=0.1): #input_vocab and max_vocab are the same
         super(Encoder, self).__init__()
         self.d_model = d_model_
         self.num_layers = num_layers_
-        self.embedding = tf.keras.layers.Embedding(input_vocab_size_, d_model_)
+        self.embedding = tf.keras.layers.Embedding(maximum_position_encoding, d_model_)
         self.pos_encoding = positional_encoding(maximum_position_encoding, self.d_model)
         self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
         self.dropout = tf.keras.layers.Dropout(rate)
+        self.semi_final  = tf.keras.layers.GRU(args.n_hid, recurrent_initializer='glorot_uniform')
+        self.final_layer = tf.keras.layers.Dense(args.n_out, activation='sigmoid')
 
-    def call(self, x_, training, mask):
+    def call(self, x_, training, mask_att, justmask):
         seq_len = tf.shape(x_)[1]
         # adding embedding and position encoding.
         x_ = self.embedding(x_)  # (batch_size, input_seq_len, d_model)
@@ -280,8 +285,12 @@ class Encoder(tf.keras.layers.Layer):
         x_ += self.pos_encoding[:, :seq_len, :]
         x_ = self.dropout(x_, training=training)
         for i in range(self.num_layers):
-            x_ = self.enc_layers[i](x_, training, mask)
-        return x_  # (batch_size, input_seq_len, d_model)
+            x_ = self.enc_layers[i](x_, training, mask_att)
+        # x shape (batch_size, input_seq_len, d_model)
+        x_ = tf.keras.layers.Reshape((-1, self.d_model))(x_)
+        out = self.semi_final(x_)  # (batch_size, 256)
+        out = self.final_layer(out) # (batch_size, 1)
+        return tf.squeeze(out)
 
 
 # class Decoder(tf.keras.layers.Layer):
@@ -338,14 +347,14 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = CustomSchedule(args.d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True, reduction='none')
 
 
 def loss_function(real, pred):
-    mask = tf.math.logical_not(tf.math.equal(real, 0))
+    #mask = tf.math.logical_not(tf.math.equal(real, 0))
     loss_ = loss_object(real, pred)
-    mask = tf.cast(mask, dtype=loss_.dtype)
-    loss_ *= mask
+    #mask = tf.cast(mask, dtype=loss_.dtype)
+    #loss_ *= mask
     return tf.reduce_mean(loss_)
 
 
@@ -355,22 +364,21 @@ AUCFunc = tf.keras.metrics.AUC()
 accFunc = tf.keras.metrics.BinaryAccuracy()
 precFunc = tf.keras.metrics.Precision(name='precFunc')
 recallFunc = tf.keras.metrics.Recall(name='recallFunc')
+encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.max_vocab_size, rate=args.dropout_rate)
 # transformer = Transformer(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size,
 #                           pe_input=input_vocab_size, pe_target=target_vocab_size, rate=dropout_rate)
-
-
-def create_look_ahead_mask(size):
-    mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
-    return mask  # (seq_len, seq_len)
+#def create_look_ahead_mask(size):
+#    mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+#    return mask  # (seq_len, seq_len)
 
 
 def create_padding_mask(seq):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
     # add extra dimensions to add the padding
     # to the attention logits.
-    return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
+    return seq[:, tf.newaxis, tf.newaxis, :], seq# (batch_size, 1, 1, seq_len)
 
-
+"""
 def create_masks(inp_):
     # Encoder padding mask
     enc_padding_mask = create_padding_mask(inp_)
@@ -384,7 +392,7 @@ def create_masks(inp_):
     dec_target_padding_mask = create_padding_mask(tar_)
     combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
     return enc_padding_mask, combined_mask, dec_padding_mask
-
+"""
 
 # checkpoint_path = "./checkpoints/train"
 # ckpt = tf.train.Checkpoint(transformer=transformer, optimizer=optimizer)
@@ -400,24 +408,26 @@ def create_masks(inp_):
 # batch sizes (the last batch is smaller), use input_signature to specify
 # more generic shapes.
 train_step_signature = [
-    tf.TensorSpec(shape=(None, None), dtype=tf.int64),
-    tf.TensorSpec(shape=(None, None), dtype=tf.int64),
+    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
+    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
 ]
 
 
 @tf.function(input_signature=train_step_signature)
-def train_step(inp_, tar_):  # shape is [batch, seq_len]
-    enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp)
+def train_step(inp_, real):  # shape is [batch, seq_len]
+    #enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp)
+    inp_padding_mask, justmask = create_padding_mask(inp_)
     with tf.GradientTape() as tape:
-        predictions, _ = transformer(inp_, tar_inp, True, enc_padding_mask, combined_mask, dec_padding_mask)
-        loss = loss_function(tar_real, predictions)
-    gradients = tape.gradient(loss, transformer.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, transformer.trainable_variables))
+        #predictions, _ = transformer(inp_, tar_inp, True, enc_padding_mask, combined_mask, dec_padding_mask)
+        pred = encoder(inp_, True, inp_padding_mask, justmask)
+        loss = loss_function(real, pred)
+    gradients = tape.gradient(loss, encoder.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
     train_loss(loss)
-    precFunc.update_state(y_true=tar_real, y_pred=predictions)
-    recallFunc.update_state(y_true=tar_real, y_pred=predictions)
-    AUCFunc.update_state(y_true=tar_real, y_pred=predictions)
-    accFunc.update_state(y_true=tar_real, y_pred=predictions)
+    precFunc.update_state(y_true=real, y_pred=pred)
+    recallFunc.update_state(y_true=real, y_pred=pred)
+    AUCFunc.update_state(y_true=real, y_pred=pred)
+    accFunc.update_state(y_true=real, y_pred=pred)
 
 
 for epoch in range(args.epochs):
@@ -428,13 +438,11 @@ for epoch in range(args.epochs):
     AUCFunc.reset_states()
     accFunc.reset_states()
     # inp -> portuguese, tar -> english
-    for (batch, (inp, tar)) in enumerate(train_tf1):
-        train_step(inp, tar)
-
+    for (batch, (X, Y)) in enumerate(train_tf3):
+        train_step(X, Y)
     # if (epoch + 1) % 5 == 0:
     #     ckpt_save_path = ckpt_manager.save()
     #     print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, ckpt_save_path))
-
     print('Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
     print('prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                     AUCFunc.result(), accFunc.result()))
