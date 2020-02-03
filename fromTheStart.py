@@ -30,7 +30,7 @@ atomInfo = 21
 structInfo = 21
 lensize = atomInfo + structInfo
 parser = argparse.ArgumentParser(description='CNN fingerprint')
-parser.add_argument('--batchsize', '-b', type=int, default=32, help='Number of moleculars in each mini-batch')
+parser.add_argument('--batchsize', '-b', type=int, default=64, help='Number of moleculars in each mini-batch')
 parser.add_argument('--epoch', '-e', type=int, default=51, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--atomsize', '-a', type=int, default=400, help='max length of smiles')
@@ -80,24 +80,25 @@ def makeData(proteinName):
     F_list_scaled = scaler.fit_transform(F_list)
     F_list_scaled = np.clip(F_list_scaled, -5, 5)
 
-    pos_num, neg_num = posNegNums(T_list)
-
     random_list(F_list_scaled)
     random_list(T_list)
 
-    train_x, test_x, train_y, test_y = train_test_split(F_list_scaled, T_list, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
+    train_x, valid_x, train_y, valid_y = train_test_split(F_list_scaled, T_list, test_size=0.1)
+    #train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
 
     train_y = np.asarray(train_y, dtype=np.int32).reshape(-1)
     train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, args.atomsize * lensize)
+    pos_num, neg_num = posNegNums(train_y)
+
     train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
     valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
     valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize * lensize)
-    valid_tf = tf.data.Dataset.from_tensors((valid_x, valid_y))  # no batch for validation sets
+    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)  # no batch for validation sets
     return train_tf, valid_tf, pos_num, neg_num
 
 
 train_tf, valid_tf, pos_num, neg_num = makeData("NR-AR")
+print("pos/neg:", pos_num, neg_num)
 
 
 def make_model(output_bias=None):
@@ -109,15 +110,21 @@ def make_model(output_bias=None):
         keras.layers.Dense(1, activation='sigmoid', bias_initializer=output_bias),
     ])
 
-    model.compile(optimizer=keras.optimizers.Adam(lr=1e-3), loss=keras.losses.BinaryCrossentropy(),
-                  metrics=[keras.metrics.AUC(name='auc'), keras.metrics.BinaryAccuracy(), keras.metrics.Mean(),
-                           keras.metrics.Precision(name='precFunc'), keras.metrics.Recall(name='recallFunc')])
+    METRICS = [
+        keras.metrics.TruePositives(name='tp'),
+        keras.metrics.FalsePositives(name='fp'),
+        keras.metrics.TrueNegatives(name='tn'),
+        keras.metrics.FalseNegatives(name='fn'),
+        keras.metrics.BinaryAccuracy(name='accuracy'),
+        keras.metrics.Precision(name='precision'),
+        keras.metrics.Recall(name='recall'),
+        keras.metrics.AUC(name='auc'),
+    ]
+
+    model.compile(optimizer=keras.optimizers.Adam(lr=1e-3), loss=keras.losses.BinaryCrossentropy(), metrics=METRICS)
 
     return model
 
-
-EPOCHS = 100
-BATCH_SIZE = 64
 
 early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_auc',
                                                   verbose=1,
@@ -125,12 +132,22 @@ early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_auc',
                                                   mode='max',
                                                   restore_best_weights=True)
 initial_bias = np.log([pos_num / neg_num])
+# Scaling by total/2 helps keep the loss to a similar magnitude.
+# The sum of the weights of all examples stays the same.
+weight_for_0 = (1 / neg_num)*(pos_num + neg_num)/2.0
+weight_for_1 = (1 / pos_num)*(pos_num + neg_num)/2.0
+class_weight = {0: weight_for_0, 1: weight_for_1}
+
 model = make_model(output_bias=initial_bias)
 for X, Y in train_tf:
-    results = model.evaluate(X, Y, batch_size=BATCH_SIZE, verbose=0)
+    preds = model.predict(X)
+    break
+for X, Y in train_tf:
+    results = model.evaluate(X, Y, verbose=0)
 
 initP = pos_num / (pos_num + neg_num)
 expectedInitLoss = -np.log(initP) * initP - (1 - initP) * np.log(1 - initP)
+print("preds:", preds, "expected preds:", initP )
 print("Loss: {:0.4f}".format(results[0]), "expected Loss: ", expectedInitLoss)
 
 initial_weights = os.path.join(tempfile.mkdtemp(), 'initial_weights')
@@ -139,9 +156,10 @@ model.save_weights(initial_weights)
 model.load_weights(initial_weights)
 baseline_history = model.fit(
     train_tf,
-    batch_size=BATCH_SIZE,
-    epochs=EPOCHS,
-    callbacks=[early_stopping],
-    validation_data=valid_tf)
+    #batch_size=BATCH_SIZE,
+    epochs=args.epoch,
+    #callbacks=[early_stopping],
+    validation_data=valid_tf,
+    class_weight=class_weight)
 
 
