@@ -14,6 +14,7 @@ import argparse
 from rdkit import Chem
 from feature import *
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print("current pid:", os.getpid())
@@ -120,6 +121,11 @@ _dataX3, _dataY3 = prepro_X(dataX3), prepro_Y(dataY_concat[2])#NR-AR
 train_x3, test_x3, train_y3, test_y3 = train_test_split(_dataX3, _dataY3, test_size=0.1)
 train_x3, valid_x3, train_y3, valid_y3 = train_test_split(train_x3, train_y3, test_size=0.1111)
 
+#scaler = StandardScaler()
+#train_features = scaler.fit_transform(train_x3)
+#val_features = scaler.transform(valid_x3)
+#test_features = scaler.transform(test_x3)
+
 
 def random_list(x, y, seed=0):
     np.random.seed(seed)
@@ -129,7 +135,7 @@ def random_list(x, y, seed=0):
 
 
 random_list(train_x3, train_y3)
-train_tf3 = tf.data.Dataset.from_tensor_slices((train_x3, train_y3)).batch(32)#x shape (batch,200)
+train_tf3 = tf.data.Dataset.from_tensor_slices((train_x3, train_y3)).batch(128)#x shape (batch,200)
 valid_tf3 = tf.data.Dataset.from_tensors((valid_x3, valid_y3))
 
 def scaled_dot_product_attention(q, k, v, mask):
@@ -266,15 +272,17 @@ def positional_encoding(position, d_model_):
 
 
 class Encoder(tf.keras.layers.Layer):
-    def __init__(self, num_layers_, d_model_, num_heads_, dff_, maximum_position_encoding, rate=0.1): #input_vocab and max_vocab are the same
+    def __init__(self, num_layers_, d_model_, num_heads_, dff_, maximum_position_encoding, seq_len, rate=0.1): #input_vocab and max_vocab are the same
         super(Encoder, self).__init__()
         self.d_model = d_model_
         self.num_layers = num_layers_
         self.embedding = tf.keras.layers.Embedding(maximum_position_encoding, d_model_)
         self.pos_encoding = positional_encoding(maximum_position_encoding, self.d_model)
         self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
+        #self.enc_layers = EncoderLayer(d_model_, num_heads_, dff_, rate)
         self.dropout = tf.keras.layers.Dropout(rate)
-        self.semi_final  = tf.keras.layers.GRU(args.n_hid, recurrent_initializer='glorot_uniform')
+        #self.semi_final = tf.keras.layers.RNN(tf.keras.layers.GRUCell(args.n_hid))
+        self.semi_final = tf.keras.layers.MaxPool1D([seq_len])
         self.final_layer = tf.keras.layers.Dense(args.n_out, activation='sigmoid')
 
     def call(self, x_, training, mask_att, justmask):
@@ -287,7 +295,7 @@ class Encoder(tf.keras.layers.Layer):
         for i in range(self.num_layers):
             x_ = self.enc_layers[i](x_, training, mask_att)
         # x shape (batch_size, input_seq_len, d_model)
-        x_ = tf.keras.layers.Reshape((-1, self.d_model))(x_)
+        #x_ = tf.keras.layers.Reshape((-1, self.d_model))(x_)
         out = self.semi_final(x_)  # (batch_size, 256)
         out = self.final_layer(out) # (batch_size, 1)
         return tf.squeeze(out)
@@ -345,8 +353,8 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
 
-learning_rate = CustomSchedule(args.d_model)
-optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+#learning_rate = CustomSchedule(args.d_model)
+optimizer = tf.keras.optimizers.Adam(0.0001, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True, reduction='none')
 
 
@@ -364,7 +372,7 @@ AUCFunc = tf.keras.metrics.AUC()
 accFunc = tf.keras.metrics.BinaryAccuracy()
 precFunc = tf.keras.metrics.Precision(name='precFunc')
 recallFunc = tf.keras.metrics.Recall(name='recallFunc')
-encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.max_vocab_size, rate=args.dropout_rate)
+encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.max_vocab_size, seq_len=args.seq_size, rate=args.dropout_rate)
 # transformer = Transformer(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size,
 #                           pe_input=input_vocab_size, pe_target=target_vocab_size, rate=dropout_rate)
 #def create_look_ahead_mask(size):
