@@ -32,14 +32,14 @@ else:
 
 parser = argparse.ArgumentParser(description='CNN fingerprint')
 parser.add_argument('--batchsize', '-b', type=int, default=32, help='Number of moleculars in each mini-batch')
-parser.add_argument('--epochs', '-e', type=int, default=10, help='Number of sweeps over the dataset to train')
+parser.add_argument('--epochs', '-e', type=int, default=100, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--lastDim', '-a', type=int, default=42, help='max length of smiles')
 parser.add_argument('--num_layers', type=int, default=6, help='No. of hidden perceptron')
-parser.add_argument('--d_model', type=int, default=512, help='No. of hidden perceptron')#default 512
+parser.add_argument('--d_model', type=int, default=42, help='No. of hidden perceptron')#default 512
 parser.add_argument('--dff', type=int, default=2048, help='No. of hidden perceptron')
-parser.add_argument('--num_heads', type=int, default=8, help='No. of hidden perceptron')
-parser.add_argument('--dropout_rate', type=int, default=0.1, help='No. of hidden perceptron')
+parser.add_argument('--num_heads', type=int, default=7, help='No. of hidden perceptron')
+parser.add_argument('--dropout_rate', type=int, default=0.7, help='No. of hidden perceptron')
 parser.add_argument('--max_vocab_size', type=int, default=1026, help='No. of output perceptron (class)')
 parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length of smiles')
 
@@ -119,19 +119,23 @@ def makeData(proteinName):
     random_list(T_list)
 
     train_x, test_x, train_y, test_y = train_test_split(F_list_scaled, T_list, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
+    #train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
 
-    train_y = np.asarray(train_y, dtype=np.int32).reshape(-1)
-    train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
+    train_y = np.asarray(T_list, dtype=np.int32).reshape(-1)
+    train_x = np.asarray(F_list_scaled, dtype=np.float32).reshape(-1, args.atomsize, lensize)
     pos_num, neg_num = posNegNums(train_y)
     train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
-    valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(
-        args.batchsize)  # # no batch for validation sets
-    return train_tf, valid_tf, pos_num, neg_num
+    #valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
+    #valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
+    #valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
+    test_y = np.asarray(test_y, dtype=np.int32).reshape(-1)
+    test_x = np.asarray(test_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
+    test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
+    return train_tf, test_tf, pos_num, neg_num
 
-train_tf, valid_tf, pos_num, neg_num = makeData("NR-AR")
+
+train_tf, test_tf, pos_num, neg_num = makeData("NR-AR")
+
 
 def classWeights(ydata, ratio):
     olist = []
@@ -257,7 +261,7 @@ def positional_encoding(position, d_model_):
     return tf.cast(pos_encoding, dtype=tf.float32)
 
 
-class Encoder(tf.keras.layers.Layer):
+class Encoder(tf.keras.Model):
     def __init__(self, num_layers_, d_model_, num_heads_, dff_, maximum_position_encoding, output_bias, seq_len, rate=0.1): #input_vocab and max_vocab are the same
         super(Encoder, self).__init__()
         if output_bias is not None:
@@ -266,7 +270,7 @@ class Encoder(tf.keras.layers.Layer):
         self.d_model = d_model_
         self.num_layers = num_layers_
         #self.embedding = tf.keras.layers.Embedding(maximum_position_encoding, d_model_)
-        self.pos_encoding = positional_encoding(maximum_position_encoding, 42)#self.d_model)
+        #self.pos_encoding = positional_encoding(maximum_position_encoding, 42)#self.d_model)
         #self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
         self.enc_layers = EncoderLayer(d_model_, num_heads_, dff_, rate)
         self.dropout = tf.keras.layers.Dropout(rate)
@@ -281,16 +285,16 @@ class Encoder(tf.keras.layers.Layer):
         # adding embedding and position encoding.
         #x_ = self.embedding(x_)  # (batch_size, input_seq_len, d_model)
         x_ *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
-        x_ += self.pos_encoding[:, :seq_len, :]
+        #x_ += self.pos_encoding[:, :seq_len, :]
         #x_ = self.dropout(x_, training=training)
         #for i in range(self.num_layers):
         #    x_ = self.enc_layers[i](x_, training, mask_att)
 
         x_ = self.enc_layers(x_, training, mask_att)
         # x shape (batch_size, input_seq_len, d_model)
-        x_ = tf.keras.layers.Reshape((-1))(x_)
+        x_ = tf.keras.layers.Reshape([-1])(x_)#since final layer has dimension size of 1
         #out = self.semi_final(x_)  # (batch_size, 256)
-        out = self.dropout(out, training=training)
+        out = self.dropout(x_, training=training)
         out = self.final_layer(out) # (batch_size, 1)
         return tf.squeeze(out)
 
@@ -339,11 +343,19 @@ encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.
 #    return mask  # (seq_len, seq_len)
 
 
-def create_padding_mask(seq):
+def create_padding_mask2(seq):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
     # add extra dimensions to add the padding
     # to the attention logits.
     return seq[:, tf.newaxis, tf.newaxis, :], seq# (batch_size, 1, 1, seq_len)
+
+
+def create_padding_mask(seq):
+    seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
+    seq = tf.cast(tf.math.argmin(seq, axis=-1), tf.float32)
+    # add extra dimensions to add the padding
+    # to the attention logits.
+    return seq[:, tf.newaxis, tf.newaxis, :], seq# (batch_size, 1, 1, atom_size)
 
 
 # checkpoint_path = "./checkpoints/train"
@@ -376,12 +388,23 @@ def train_step(inp_, real):  # shape is [batch, seq_len]
     gradients = tape.gradient(loss, encoder.trainable_variables)
     optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
     train_loss(loss)
+
+
+def eval_step(inp_, real):
+    inp_padding_mask, justmask = create_padding_mask(inp_)
+    pred = encoder(inp_, False, inp_padding_mask, justmask)
+
     precFunc.update_state(y_true=real, y_pred=pred)
     recallFunc.update_state(y_true=real, y_pred=pred)
     AUCFunc.update_state(y_true=real, y_pred=pred)
     accFunc.update_state(y_true=real, y_pred=pred)
 
 
+checkpoint_path = "tr1/cp.ckpt"
+checkpoint_dir = os.path.dirname(checkpoint_path)
+
+bestAUC = 0
+encoder.save_weights(checkpoint_dir)
 for epoch in range(args.epochs):
     start = time.time()
     train_loss.reset_states()
@@ -392,36 +415,31 @@ for epoch in range(args.epochs):
     # inp -> portuguese, tar -> english
     for (batch, (X, Y)) in enumerate(train_tf):
         train_step(X, Y)
-    # if (epoch + 1) % 5 == 0:
-    #     ckpt_save_path = ckpt_manager.save()
-    #     print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, ckpt_save_path))
-    print('Training Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
-    print('Training prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
+
+    for (batch, (X, Y)) in enumerate(test_tf):
+        eval_step(X, Y)
+
+    if bestAUC < AUCFunc.result():
+        bestAUC = AUCFunc.result()
+        encoder.save_weights(checkpoint_dir)
+        print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, checkpoint_dir))
+    print('Valid Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
+    print('Valid prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                     AUCFunc.result(), accFunc.result()))
     print('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
 
-# def evaluate(inp_sentence):
-#     start_token = [tokenizer_pt.vocab_size]
-#     end_token = [tokenizer_pt.vocab_size + 1]
-#     # inp sentence is portuguese, hence adding the start and end token
-#     inp_sentence = start_token + tokenizer_pt.encode(inp_sentence) + end_token
-#     encoder_input = tf.expand_dims(inp_sentence, 0)
-#     # as the target is english, the first word to the transformer should be the
-#     # english start token.
-#     decoder_input = [tokenizer_en.vocab_size]
-#     output = tf.expand_dims(decoder_input, 0)
-#     for i in range(MAX_LENGTH):
-#         enc_padding_mask, combined_mask, dec_padding_mask = create_masks(encoder_input, output)
-#         # predictions.shape == (batch_size, seq_len, vocab_size)
-#         predictions, attention_weights = transformer(encoder_input, output, False, enc_padding_mask, combined_mask,
-#                                                      dec_padding_mask)
-#         # select the last word from the seq_len dimension
-#         predictions = predictions[:, -1:, :]  # (batch_size, 1, vocab_size)
-#         predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
-#         # return the result if the predicted_id is equal to the end token
-#         if predicted_id == tokenizer_en.vocab_size + 1:
-#             return tf.squeeze(output, axis=0), attention_weights
-#         # concatentate the predicted_id to the output which is given to the decoder
-#         # as its input.
-#         output = tf.concat([output, predicted_id], axis=-1)
-#     return tf.squeeze(output, axis=0), attention_weights
+
+"""
+######testing phase
+precFunc.reset_states()
+recallFunc.reset_states()
+AUCFunc.reset_states()
+accFunc.reset_states()
+
+encoder.load_weights(checkpoint_dir)
+for (batch, (X, Y)) in enumerate(test_tf2):
+    eval_step(X, Y)
+
+print('Test prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(), AUCFunc.result(), accFunc.result()))
+"""
+
