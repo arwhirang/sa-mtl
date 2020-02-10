@@ -364,7 +364,7 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = args.lr#0.0001#CustomSchedule(args.d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate)#, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction='none')
+loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction=tf.keras.losses.Reduction.SUM)
 
 
 def loss_function(real, pred, sampleW=None):
