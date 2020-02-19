@@ -31,17 +31,16 @@ else:
     print("gpu unlimited?")
 
 parser = argparse.ArgumentParser(description='argparse')
-parser.add_argument('--batchsize', '-b', type=int, default=32, help='Number of moleculars in each mini-batch')
+parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of moleculars in each mini-batch')
 parser.add_argument('--epochs', '-e', type=int, default=50, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--proteinTarget', '-p', required=True, help='target data')
-parser.add_argument('--lastDim', '-a', type=int, default=42, help='max length of smiles')
-parser.add_argument('--num_layers', type=int, default=6, help='No. of hidden perceptron')
-parser.add_argument('--d_model', type=int, default=42, help='No. of hidden perceptron')#default 512
+parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
+parser.add_argument('--d_model', type=int, default=200, help='No. of hidden perceptron')#default 512
 parser.add_argument('--dff', type=int, default=2048, help='No. of hidden perceptron')
-parser.add_argument('--num_heads', type=int, default=7, help='No. of hidden perceptron')
-parser.add_argument('--dropout_rate', '-d', type=float, default=0.5, help='No. of hidden perceptron')
-parser.add_argument('--lr', '-l', type=float, default=0.0001, help='No. of hidden perceptron')
+parser.add_argument('--num_heads', type=int, default=5, help='No. of hidden perceptron')
+parser.add_argument('--dropout_rate', '-d', type=float, default=0.1, help='No. of hidden perceptron')
+parser.add_argument('--lr', '-l', type=float, default=0.00005, help='No. of hidden perceptron')
 parser.add_argument('--max_vocab_size', type=int, default=1026, help='No. of output perceptron (class)')
 parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length of smiles')
 parser.add_argument('--seq_size', '-s', type=int, default=200, help='seq length of smiles fp2vec')
@@ -173,9 +172,8 @@ def char2indices(listStr, dicC2I):
             listIndices[i] = dicC2I[c]
     return listIndices
 
-def makeDataForSmilesOnly(proteinName):
+def makeDataForSmilesOnly(proteinName, dicC2I_):
     listX, listY = [], []
-    dicC2I = {}
     afile = args.input + '/' + proteinName + '_wholetraining.smiles'
     f = open(afile, "r")
     lines = f.readlines()
@@ -188,21 +186,23 @@ def makeDataForSmilesOnly(proteinName):
             if splitted[1] == "1":
                 weirdButUseful += 1
             continue
-        listX.append(char2indices(splitted[0], dicC2I))#length can vary
-        listY.append(int(splitted[1]))
+        listX.append(char2indices(splitted[0], dicC2I_))#length can vary
+        listY.append(float(splitted[1]))
     f.close()
-    #print("how many weird cases exist?", cntTooLong, weirdButUseful)
+    print("how many weird cases exist?", cntTooLong, weirdButUseful)
     random_list(listX)
     random_list(listY)
     train_x, test_x, train_y, test_y = train_test_split(listX, listY, test_size=0.1)
+    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
     pos_num, neg_num = posNegNums(train_y)    
     print("pos_num, neg_num", pos_num, neg_num)
     train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
+    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
     test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-    return train_tf, test_tf, pos_num, neg_num
+    return train_tf, valid_tf, test_tf, pos_num, neg_num
 
-
-train_tf, test_tf, pos_num, neg_num = makeDataForSmilesOnly(args.proteinTarget)
+dicC2I = {}
+train_tf, valid_tf, test_tf, pos_num, neg_num = makeDataForSmilesOnly(args.proteinTarget, dicC2I)
 
 
 def scaled_dot_product_attention(q, k, v, mask):
@@ -327,7 +327,10 @@ class Encoder(tf.keras.Model):
         self.dropout = tf.keras.layers.Dropout(rate)
         #self.semi_final = tf.keras.layers.RNN(tf.keras.layers.GRUCell(args.n_hid, recurrent_initializer='glorot_uniform'))
         self.semi_final = tf.keras.layers.Dense(1)
-        self.final_layer = tf.keras.layers.Dense(args.n_out, activation='sigmoid', bias_initializer=output_bias)
+
+        #self.conv1 = tf.keras.layers.Conv1D(1024, 5, strides=1)
+        #self.maxp = tf.keras.layers.MaxPool1D([196])
+        self.final_layer = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid'
 
     def call(self, x_, training, mask_att, justmask):
         seq_len = tf.shape(x_)[1]
@@ -336,17 +339,20 @@ class Encoder(tf.keras.Model):
         x_ = self.embedding(x_)  # (batch_size, input_seq_len, d_model)
         x_ *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         #x_ += self.pos_encoding[:, :seq_len, :]
-        x_ = self.dropout(x_, training=training)
+        #x_ = self.dropout(x_, training=training)## <= reached 85
         for i in range(self.num_layers):
             x_ = self.enc_layers[i](x_, training, mask_att)
 
         #x_ = self.enc_layers(x_, training, mask_att)
         # x shape (batch_size, input_seq_len, d_model)
-        out = self.semi_final(x_)  # (batch_size, seq_len, 1)
-        out = tf.keras.layers.Reshape([-1])(out)#since final layer has dimension size of 1
-        #out = self.dropout(x_, training=training)
+        ##x_ = self.conv1(x_) # (batch_size, seq_len-5+1, 1024)
+        x_ = self.dropout(x_, training=training) ##<= reached 89
+        out = self.semi_final(x_)
+        out = tf.keras.layers.Reshape([seq_len])(out)#since final layer has dimension size of 1
+        #out = self.dropout(out, training=training) ##<= reached 88
         out = self.final_layer(out) # (batch_size, 1)
-        return tf.squeeze(out)
+        out = tf.squeeze(out, axis=[1])
+        return out, tf.math.sigmoid(out)
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -364,16 +370,7 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = args.lr#0.0001#CustomSchedule(args.d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate)#, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction=tf.keras.losses.Reduction.SUM)
-
-
-def loss_function(real, pred, sampleW=None):
-    #mask = tf.math.logical_not(tf.math.equal(real, 0))
-    loss_ = loss_object(real, pred)
-    #mask = tf.cast(mask, dtype=loss_.dtype)
-    #loss_ *= mask
-    return tf.reduce_mean(loss_)
-
+#loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction=tf.keras.losses.Reduction.SUM)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 AUCFunc = tf.keras.metrics.AUC()
@@ -381,7 +378,16 @@ accFunc = tf.keras.metrics.BinaryAccuracy()
 precFunc = tf.keras.metrics.Precision(name='precFunc')
 recallFunc = tf.keras.metrics.Recall(name='recallFunc')
 initial_bias = np.log([pos_num / neg_num])
-encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.max_vocab_size, output_bias=initial_bias, seq_len=args.atomsize*42, rate=args.dropout_rate)
+#weight_for_0 = tf.convert_to_tensor((1 / neg_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)#not used 
+weight_for_1 = tf.convert_to_tensor((1 / pos_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)
+
+encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, len(dicC2I), output_bias=initial_bias, seq_len=args.atomsize*42, rate=args.dropout_rate)
+
+
+def loss_function(real, pred_logit, sampleW=None):
+    #loss_ = loss_object(real, pred)
+    cross_ent = tf.nn.weighted_cross_entropy_with_logits(logits=pred_logit, labels=real, pos_weight=sampleW)
+    return tf.reduce_mean(cross_ent)
 
 
 def create_padding_mask_fp2vec(seq):
@@ -408,15 +414,22 @@ train_step_signature = [
     tf.TensorSpec(shape=(None, None), dtype=tf.int32),
     tf.TensorSpec(shape=(None, None), dtype=tf.int32),
 ]
-
-
-#@tf.function(input_signature=train_step_signature)
+"""
+bit_size = 1024 # circular fingerprint
+emb = tf.Variable(tf.random.uniform([bit_size, args.d_model], -1, 1), dtype=tf.float32)
+pads = tf.constant([[1,0], [0,0]])
+embeddings_ = tf.pad(emb, pads)#1025, 200
+"""
+#tf.function(input_signature=train_step_signature)
 def train_step(inp_, real):  # shape is [batch, seq_len]
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
     with tf.GradientTape() as tape:
         #predictions, _ = transformer(inp_, tar_inp, True, enc_padding_mask, combined_mask, dec_padding_mask)
-        pred = encoder(inp_, True, inp_padding_mask, justmask)
-        loss = loss_function(real, pred)
+        #pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), True, inp_padding_mask, justmask)
+
+        pred_logit_, pred = encoder(inp_, True, inp_padding_mask, justmask)
+
+        loss = loss_function(real, pred_logit_, sampleW=weight_for_1)
     gradients = tape.gradient(loss, encoder.trainable_variables)
     optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
     train_loss(loss)
@@ -424,7 +437,9 @@ def train_step(inp_, real):  # shape is [batch, seq_len]
 
 def eval_step(inp_, real):
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
-    pred = encoder(inp_, False, inp_padding_mask, justmask)
+    #pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), False, inp_padding_mask, justmask)
+
+    _, pred = encoder(inp_, False, inp_padding_mask, justmask)
 
     precFunc.update_state(y_true=real, y_pred=pred)
     recallFunc.update_state(y_true=real, y_pred=pred)
@@ -432,11 +447,13 @@ def eval_step(inp_, real):
     accFunc.update_state(y_true=real, y_pred=pred)
 
 
-checkpoint_dir = "tr1/cp.ckpt"
+checkpoint_dir = "tr0/cp.ckpt"
 #checkpoint_dir = os.path.dirname(checkpoint_path)
+f2w = open("performance", "w")
 
 bestAUC = 0
-#encoder.save_weights(checkpoint_dir)
+bestEpoch = 0
+encoder.save_weights(checkpoint_dir)
 for epoch in range(args.epochs):
     start = time.time()
     train_loss.reset_states()
@@ -448,20 +465,27 @@ for epoch in range(args.epochs):
     for (batch, (X, Y)) in enumerate(train_tf):
         train_step(X, Y)
 
-    for (batch, (X, Y)) in enumerate(test_tf):
+    for (batch, (X, Y)) in enumerate(valid_tf):
         eval_step(X, Y)
 
-    #if bestAUC < AUCFunc.result():
-    #    bestAUC = AUCFunc.result()
-    #    encoder.save_weights(checkpoint_dir)
-    #    print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, checkpoint_dir))
+    if bestAUC < AUCFunc.result():
+        bestAUC = AUCFunc.result()
+        bestEpoch = epoch + 1
+        encoder.save_weights(checkpoint_dir)
+        print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, checkpoint_dir))
     print('Train Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
     print('Valid prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                           AUCFunc.result(), accFunc.result()))
+    f2w.write('Train Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
+    f2w.write("\n")
+    f2w.write('Valid prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
+                                                                          AUCFunc.result(), accFunc.result()))
+    f2w.write("\n")
+    f2w.flush()
     print('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
 
 
-"""
+
 ######testing phase
 precFunc.reset_states()
 recallFunc.reset_states()
@@ -469,10 +493,11 @@ AUCFunc.reset_states()
 accFunc.reset_states()
 
 encoder.load_weights(checkpoint_dir)
+print("loaded the weights from the best epoch:", bestEpoch)
 
 for (batch, (X, Y)) in enumerate(test_tf):
     eval_step(X, Y)
 
 print('Test prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(), AUCFunc.result(), accFunc.result()))
-"""
 
+f2w.close()
