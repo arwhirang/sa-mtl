@@ -15,15 +15,24 @@ from rdkit import Chem
 from feature import *
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+import pickle
+import itertools
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+log_path =  "./logs/"
+try:
+    os.rmdir(log_path)
+except OSError as e:
+    print("Error: %s : %s" % (log_path, e.strerror))
+    TC = tf.keras.callbacks.TensorBoard("logs", 2, write_graph=True)
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 print("current pid:", os.getpid())
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
-        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
-        tf.config.experimental.set_memory_growth(gpus[0], True)
+        tf.config.experimental.set_visible_devices(gpus[1], 'GPU')
+        tf.config.experimental.set_memory_growth(gpus[1], True)
         print("should be ok...right?")
     except RuntimeError as e:
         print(e)
@@ -32,19 +41,22 @@ else:
 
 parser = argparse.ArgumentParser(description='argparse')
 parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of moleculars in each mini-batch')
-parser.add_argument('--epochs', '-e', type=int, default=101, help='Number of sweeps over the dataset to train')
+parser.add_argument('--epochs', '-e', type=int, default=0, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
-parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
-parser.add_argument('--d_model', type=int, default=200, help='No. of hidden perceptron')  # default 512
-parser.add_argument('--dff', type=int, default=2048, help='No. of hidden perceptron')
-parser.add_argument('--num_heads', type=int, default=5, help='No. of hidden perceptron')
+parser.add_argument('--num_layers', type=int, default=5, help='No. of hidden perceptron')
+parser.add_argument('--d_model', type=int, default=100, help='No. of hidden perceptron')  # default 512
+parser.add_argument('--dff', type=int, default=1024, help='No. of hidden perceptron')
+parser.add_argument('--num_heads', type=int, default=1, help='No. of hidden perceptron')
 parser.add_argument('--dropout_rate', '-d', type=float, default=0.1, help='No. of hidden perceptron')
 parser.add_argument('--lr', '-l', type=float, default=0.00005, help='No. of hidden perceptron')
 parser.add_argument('--max_vocab_size', type=int, default=1025, help='')
 parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length of smiles')
 parser.add_argument('--seq_size', '-s', type=int, default=200, help='seq length of smiles fp2vec')
 parser.add_argument('--n_hid', type=int, default=256, help='No. of hidden perceptron')
-parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
+parser.add_argument('--pickle_load', type=bool, default=True, help='pickle embedding')
+parser.add_argument('--weight_load', type=bool, default=True, help='pickle embedding')
+parser.add_argument('--current_num', default="2", help='name says it')
+parser.add_argument('--n_out', type=int, default=2, help='No. of output perceptron (class)')
 args = parser.parse_args()
 
 """
@@ -86,7 +98,7 @@ def prepro_Y(inpY):
     data_y = []
     for i in range(len(inpY)):
         data_y.append(inpY[i])
-    return np.array(data_y, dtype=np.int32)#variable
+    return np.array(data_y, dtype=np.float32)#variable
 """
 
 def posNegNums(ydata):
@@ -112,24 +124,28 @@ def in1Func(x, y):
     train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
     random_list(train_x)
     random_list(train_y)
+    pos_num, neg_num = posNegNums(train_y)
     train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
     valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
     test_tf  = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-    return train_tf, valid_tf, test_tf
+    return train_tf, valid_tf, test_tf, pos_num, neg_num
 
-
-train_tf1, valid_tf1, test_tf1 = in1Func(dataX1, dataY_concat[0])
-train_tf2, valid_tf2, test_tf2 = in1Func(dataX2, dataY_concat[1])
-train_tf3, valid_tf3, test_tf3 = in1Func(dataX3, dataY_concat[2])
-train_tf4, valid_tf4, test_tf4 = in1Func(dataX4, dataY_concat[3])
-train_tf5, valid_tf5, test_tf5 = in1Func(dataX5, dataY_concat[4])
-train_tf6, valid_tf6, test_tf6 = in1Func(dataX6, dataY_concat[5])
-train_tf7, valid_tf7, test_tf7 = in1Func(dataX7, dataY_concat[6])
-train_tf8, valid_tf8, test_tf8 = in1Func(dataX8, dataY_concat[7])
-train_tf9, valid_tf9, test_tf9 = in1Func(dataX9, dataY_concat[8])
-train_tf10, valid_tf10, test_tf10 = in1Func(dataX10, dataY_concat[9])
-train_tf11, valid_tf11, test_tf11 = in1Func(dataX11, dataY_concat[10])
-train_tf12, valid_tf12, test_tf12 = in1Func(dataX12, dataY_concat[11])
+pos_num, neg_num = 0, 0
+train_tf1, valid_tf1, test_tf1, pos1, neg1 = in1Func(dataX1, dataY_concat[0])
+train_tf2, valid_tf2, test_tf2, pos2, neg2 = in1Func(dataX2, dataY_concat[1])
+train_tf3, valid_tf3, test_tf3, pos3, neg3 = in1Func(dataX3, dataY_concat[2])
+train_tf4, valid_tf4, test_tf4, pos4, neg4 = in1Func(dataX4, dataY_concat[3])
+train_tf5, valid_tf5, test_tf5, pos5, neg5 = in1Func(dataX5, dataY_concat[4])
+train_tf6, valid_tf6, test_tf6, pos6, neg6 = in1Func(dataX6, dataY_concat[5])
+train_tf7, valid_tf7, test_tf7, pos7, neg7 = in1Func(dataX7, dataY_concat[6])
+train_tf8, valid_tf8, test_tf8, pos8, neg8 = in1Func(dataX8, dataY_concat[7])
+train_tf9, valid_tf9, test_tf9, pos9, neg9 = in1Func(dataX9, dataY_concat[8])
+train_tf10, valid_tf10, test_tf10, pos10, neg10 = in1Func(dataX10, dataY_concat[9])
+train_tf11, valid_tf11, test_tf11, pos11, neg11 = in1Func(dataX11, dataY_concat[10])
+train_tf12, valid_tf12, test_tf12, pos12, neg12 = in1Func(dataX12, dataY_concat[11])
+pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
+neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
+print("pos/neg:", pos_num, neg_num)
 """
 
 def makeData_scfp(proteinName):
@@ -216,16 +232,33 @@ def makeDataForSmilesOnly(proteinName, dicC2I):
     # print("how many weird cases exist?", cntTooLong, weirdButUseful)
     random_list(listX)
     random_list(listY)
-    train_x, test_x, train_y, test_y = train_test_split(listX, listY, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
+    #train_x, test_x, train_y, test_y = train_test_split(listX, listY, test_size=0.1)
+    train_x, valid_x, train_y, valid_y = train_test_split(listX, listY, test_size=0.1)#111)
     pos_num, neg_num = posNegNums(train_y)
-    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
-    test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
+    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize).shuffle(10000)
+    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize).shuffle(10000)
+
+    testlistX, testlistY = [], []
+    testfile = args.input + "/" + proteinName + '_score.smiles'
+    testf = open(testfile)
+    lines = testf.readlines()
+    for line in lines:
+        splitted = line.split("\t")
+        if len(splitted[0]) >= 200:
+            continue
+        testlistX.append(char2indices(splitted[0], dicC2I))  # length can vary
+        testlistY.append(float(splitted[1]))
+    testf.close()
+    #print(len(testlistY))
+    test_tf = tf.data.Dataset.from_tensor_slices((testlistX, testlistY)).batch(args.batchsize)
     return train_tf, valid_tf, test_tf, pos_num, neg_num
 
+
+if args.pickle_load:
+    embeddings_, dicC2I = pickle.load(open("saved_emb.pkl", "rb"))
+else:
+    dicC2I = {}
 pos_num, neg_num = 0, 0
-dicC2I = {}
 train_tf1, valid_tf1, test_tf1, pos1, neg1 = makeDataForSmilesOnly("NR-AR-LBD", dicC2I)
 train_tf2, valid_tf2, test_tf2, pos2, neg2 = makeDataForSmilesOnly("NR-AR", dicC2I)
 train_tf3, valid_tf3, test_tf3, pos3, neg3 = makeDataForSmilesOnly("NR-AhR", dicC2I)
@@ -240,6 +273,7 @@ train_tf11, valid_tf11, test_tf11, pos11, neg11 = makeDataForSmilesOnly("SR-MMP"
 train_tf12, valid_tf12, test_tf12, pos12, neg12 = makeDataForSmilesOnly("SR-p53", dicC2I)
 pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
 neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
+print("pos/neg:", pos_num, neg_num)
 
 
 def scaled_dot_product_attention(q, k, v, mask):
@@ -309,8 +343,8 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
 def point_wise_feed_forward_network(d_model_, dff_):
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(dff_, activation="relu"),  # dff_, activation='relu'),  # (batch_size, seq_len, dff)
-        tf.keras.layers.Dense(d_model_)  # d_model_)  # (batch_size, seq_len, d_model)
+        tf.keras.layers.Dense(dff_, activation="relu", bias_initializer='glorot_uniform', use_bias=True),  # (batch_size, seq_len, dff)
+        tf.keras.layers.Dense(d_model_, bias_initializer='glorot_uniform', use_bias=True) # (batch_size, seq_len, d_model)
     ])
 
 
@@ -350,6 +384,37 @@ def positional_encoding(position, d_model_):
     return tf.cast(pos_encoding, dtype=tf.float32)
 
 
+class CustomFC(tf.keras.layers.Layer):
+    def __init__(self, output_bias, d_model_):
+        super(CustomFC, self).__init__()
+        self.d_model = d_model_
+        self.finalFC1 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
+        self.finalFC2 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
+
+    def call(self, inputs, seq_len):
+        out = self.finalFC1(inputs)
+        ##out = tf.keras.layers.Reshape([self.d_model])(out)#seq_len])(out)
+        out = tf.keras.layers.Reshape([seq_len])(out)
+        out = self.finalFC2(out)
+        return out
+
+class CustomFCVer2(tf.keras.layers.Layer):
+    def __init__(self, output_bias, d_model_, num_heads_, dff_, rate, num_layers_):
+        super(CustomFCVer2, self).__init__()
+        self.d_model = d_model_
+        self.finalFC1 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
+        self.finalFC2 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
+        self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
+        self.num_layers = num_layers_
+
+    def call(self, inputs, seq_len, training, mask_att):
+        for i in range(self.num_layers):
+            inputs = self.enc_layers[i](inputs, training, mask_att)
+        out = self.finalFC1(inputs)
+        out = tf.keras.layers.Reshape([seq_len])(out)
+        out = self.finalFC2(out)
+        return out
+
 
 class CustomHot(tf.keras.layers.Layer):
     def __init__(self):
@@ -357,81 +422,110 @@ class CustomHot(tf.keras.layers.Layer):
 
     def call(self, inputs):
         return tf.one_hot(inputs, 12)
-
-
+                                        
 class CustomRSum(tf.keras.layers.Layer):
     def __init__(self):
         super(CustomRSum, self).__init__()
-
     def call(self, inputs, dWhich):
         return tf.math.reduce_sum(inputs * dWhich, axis=1)  # only the 1 instnce survives
 
-
 class Encoder(tf.keras.Model):
-    def __init__(self, num_layers_, d_model_, num_heads_, dff_, maximum_position_encoding, output_bias, rate=0.1):  # input_vocab and max_vocab are the same
+    def __init__(self, num_layers_, d_model_, num_heads_, dff_, output_bias, rate=0.1, seq_size=None):  # input_vocab and max_vocab are the same
         super(Encoder, self).__init__()
         if output_bias is not None:
             output_bias = tf.keras.initializers.Constant(output_bias)
-
+        self.seq_size = seq_size
         self.d_model = d_model_
         self.num_layers = num_layers_
-        #self.embedding = tf.keras.layers.Embedding(maximum_position_encoding, d_model_)
-        #self.pos_encoding = positional_encoding(maximum_position_encoding, self.d_model)
         self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
-        #self.enc_layers1 = EncoderLayer(d_model_, num_heads_, dff_, rate)
         self.dropout = tf.keras.layers.Dropout(rate)
-        # self.semi_final = tf.keras.layers.RNN(tf.keras.layers.GRUCell(args.n_hid, recurrent_initializer='glorot_uniform'))#bad
-        self.semi_final = tf.keras.layers.Dense(1)
+        self.pads1 = tf.constant([[0, 0], [0, 7 - 1], [0, 0]])
+        self.conv1 = tf.keras.layers.Conv2D(d_model_, [7, d_model_], strides=1)
 
-        #self.conv1 = tf.keras.layers.Conv2D(d_model_, [5, d_model_], strides=1)
-        #self.maxp = tf.keras.layers.MaxPool1D([196])
-
-        self.finalFC1 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC2 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC3 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC4 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC5 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC6 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC7 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC8 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC9 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC10 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC11 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
-        self.finalFC12 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid')
+        self.FC1 = CustomFC(output_bias, self.d_model)
+        self.FC2 = CustomFC(output_bias, self.d_model)
+        self.FC3 = CustomFC(output_bias, self.d_model)
+        self.FC4 = CustomFC(output_bias, self.d_model)
+        self.FC5 = CustomFC(output_bias, self.d_model)
+        self.FC6 = CustomFC(output_bias, self.d_model)
+        self.FC7 = CustomFC(output_bias, self.d_model)
+        self.FC8 = CustomFC(output_bias, self.d_model)
+        self.FC9 = CustomFC(output_bias, self.d_model)
+        self.FC10 = CustomFC(output_bias, self.d_model)
+        self.FC11 = CustomFC(output_bias, self.d_model)
+        self.FC12 = CustomFC(output_bias, self.d_model)
 
     def call(self, x_, whichClass, training, mask_att, justmask):
         seq_len = tf.shape(x_)[1]
         # x_.set_shape([None, self.seq_size])
         # adding embedding and position encoding.
-        #x_ = self.embedding(x_)  # (batch_size, input_seq_len, d_model)
-        x_ *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
-        #x_ += self.pos_encoding[:, :seq_len, :]
-        #x_ = self.dropout(x_, training=training)
+        x_ = tf.keras.layers.Reshape([seq_len, self.d_model, 1])(x_)
+        x_ = self.conv1(x_)
+        x_ = tf.keras.layers.Reshape([seq_len - 7 + 1, self.d_model])(x_)
+        x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
         for i in range(self.num_layers):
             x_ = self.enc_layers[i](x_, training, mask_att)
-        ##x = tf.keras.layers.Reshape([200, self.d_model, 1])(x_)
-        ##x = self.conv1(x)
-        ##x = tf.keras.layers.Reshape([196, self.d_model])(x)
-        ##x = self.maxp(x)
-        x = self.dropout(x_, training)
-        ##out = tf.keras.layers.Reshape([1024])(x)
-        #x_ = self.enc_layers1(x_, training, #mask_att)
-        # x shape (batch_size, input_seq_len, ...)
-        out = self.semi_final(x_)  # (batch_size, seq_len, 1)
-        out = tf.keras.layers.Reshape([seq_len])(out)  # since final layer has dimension size of 1
-        #out = self.dropout(out, training=training)
-        cl1 = self.finalFC1(out)
-        cl2 = self.finalFC2(out)
-        cl3 = self.finalFC3(out)
-        cl4 = self.finalFC4(out)
-        cl5 = self.finalFC5(out)
-        cl6 = self.finalFC6(out)
-        cl7 = self.finalFC7(out)
-        cl8 = self.finalFC8(out)
-        cl9 = self.finalFC9(out)
-        cl10 = self.finalFC10(out)
-        cl11 = self.finalFC11(out)
-        cl12 = self.finalFC12(out)
+        out = self.dropout(x_, training=training)
+        cl1 = self.FC1(out, seq_len)
+        cl2 = self.FC2(out, seq_len)
+        cl3 = self.FC3(out, seq_len)
+        cl4 = self.FC4(out, seq_len)
+        cl5 = self.FC5(out, seq_len)
+        cl6 = self.FC6(out, seq_len)
+        cl7 = self.FC7(out, seq_len)
+        cl8 = self.FC8(out, seq_len)
+        cl9 = self.FC9(out, seq_len)
+        cl10 = self.FC10(out, seq_len)
+        cl11 = self.FC11(out, seq_len)
+        cl12 = self.FC12(out, seq_len)#batch, 2
+        x_out = tf.keras.layers.concatenate([cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, cl10, cl11, cl12])#default axis -1 ==> batch, 12
+        decideWhich = CustomHot()(whichClass)
+        pred_logit = CustomRSum()(x_out, decideWhich)
+        return pred_logit, tf.math.sigmoid(pred_logit)
+
+
+class EncoderVer2(tf.keras.Model):
+    def __init__(self, num_layers_, d_model_, num_heads_, dff_, output_bias, rate=0.1, seq_size=None):  # input_vocab and max_vocab are the same
+        super(EncoderVer2, self).__init__()
+        if output_bias is not None:
+            output_bias = tf.keras.initializers.Constant(output_bias)
+        self.seq_len = seq_size
+        self.d_model = d_model_
+        self.num_layers = num_layers_
+        self.dropout = tf.keras.layers.Dropout(rate)
+        self.pads1 = tf.constant([[0, 0], [0, 7 - 1], [0, 0]])
+        self.conv1 = tf.keras.layers.Conv2D(d_model_, [7, d_model_], strides=1)
+        self.FC1 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC2 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC3 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC4 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC5 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC6 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC7 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC8 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC9 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC10 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC11 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+        self.FC12 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
+                                                                                                    
+    def call(self, x_, whichClass, training, mask_att, justmask):
+        x_ = tf.keras.layers.Reshape([self.seq_len, self.d_model, 1])(x_)
+        x_ = self.conv1(x_)
+        x_ = tf.keras.layers.Reshape([self.seq_len - 7 + 1, self.d_model])(x_)
+        x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
+        out = self.dropout(x_, training=training)
+        cl1 = self.FC1(out, self.seq_len, training, mask_att)
+        cl2 = self.FC2(out, self.seq_len, training, mask_att)
+        cl3 = self.FC3(out, self.seq_len, training, mask_att)
+        cl4 = self.FC4(out, self.seq_len, training, mask_att)
+        cl5 = self.FC5(out, self.seq_len, training, mask_att)
+        cl6 = self.FC6(out, self.seq_len, training, mask_att)
+        cl7 = self.FC7(out, self.seq_len, training, mask_att)
+        cl8 = self.FC8(out, self.seq_len, training, mask_att)
+        cl9 = self.FC9(out, self.seq_len, training, mask_att)
+        cl10 = self.FC10(out, self.seq_len, training, mask_att)
+        cl11 = self.FC11(out, self.seq_len, training, mask_att)
+        cl12 = self.FC12(out, self.seq_len, training, mask_att)
         x_out = tf.keras.layers.concatenate([cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, cl10, cl11, cl12])
         decideWhich = CustomHot()(whichClass)
         pred_logit = CustomRSum()(x_out, decideWhich)
@@ -463,8 +557,8 @@ initial_bias = np.log([pos_num / neg_num])
 #weight_for_0 = tf.convert_to_tensor((1 / neg_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)#not used 
 weight_for_1 = tf.convert_to_tensor((1 / pos_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)
 
-encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, args.max_vocab_size, output_bias=initial_bias, rate=args.dropout_rate)
-
+encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, output_bias=initial_bias, rate=args.dropout_rate, seq_size=args.seq_size)
+TC.set_model(encoder)
 
 def loss_function(real, pred_logit, sampleW=None):
     #loss_ = loss_object(real, pred)
@@ -487,21 +581,20 @@ def create_padding_mask_scfp(seq):
     return seq[:, tf.newaxis, tf.newaxis, :], seq  # (batch_size, 1, 1, atom_size)
 
 
-# The @tf.function trace-compiles train_step into a TF graph for faster
-# execution. The function specializes to the precise shape of the argument
-# tensors. To avoid re-tracing due to the variable sequence lengths or variable
-# batch sizes (the last batch is smaller), use input_signature to specify
-# more generic shapes.
-train_step_signature = [
-    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
-    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
-]
 
 
-bit_size = 1024 # circular fingerprint
-emb = tf.Variable(tf.random.uniform([bit_size, args.d_model], -1, 1), dtype=tf.float32)
-pads = tf.constant([[1,0], [0,0]])
-embeddings_ = tf.pad(emb, pads)#1025, 200
+checkpoint_dir = "trS"+args.current_num+"/cp.ckpt"
+if args.pickle_load == False:
+    bit_size = len(dicC2I) #1024
+    emb = tf.Variable(tf.random.uniform([bit_size, args.d_model], -1, 1), dtype=tf.float32)
+    pads = tf.constant([[1,0], [0,0]])
+    embeddings_ = tf.pad(emb, pads)#1025, 200
+    encoder.save_weights(checkpoint_dir)
+else:
+    #embeddings_ = pickle.load(open("saved_emb.pkl", "rb"))
+    print("embedding loaded already")
+    if args.weight_load == True:
+        encoder.load_weights(checkpoint_dir)
 
 # @tf.function(input_signature=train_step_signature)
 def train_step(inp_, real, whichClass):  # shape is [batch, seq_len]
@@ -522,15 +615,21 @@ def eval_step(inp_, real, whichClass):
     recallFunc.update_state(y_true=real, y_pred=pred)
     AUCFunc.update_state(y_true=real, y_pred=pred)
     accFunc.update_state(y_true=real, y_pred=pred)
+    
+def test_step(inp_, real, whichClass, list12):
+    inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
+    logit, pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), whichClass, False, inp_padding_mask, justmask)
+    precFunc.update_state(y_true=real, y_pred=pred)
+    recallFunc.update_state(y_true=real, y_pred=pred)
+    AUCFunc.update_state(y_true=real, y_pred=pred)
+    accFunc.update_state(y_true=real, y_pred=pred)
+    #print(len(logit), len(real))
+    if args.weight_load:
+        list12[whichClass].extend(logit)
 
-
-checkpoint_dir = "tr1/cp.ckpt"
-# checkpoint_dir = os.path.dirname(checkpoint_path)
-
-f2w = open("performance1", "w")
+f2w = open("performanceS", "w")
 bestEpoch = 0
 bestAUC = 0
-encoder.save_weights(checkpoint_dir)
 for epoch in range(args.epochs):
     start = time.time()
     train_loss.reset_states()
@@ -538,43 +637,66 @@ for epoch in range(args.epochs):
     recallFunc.reset_states()
     AUCFunc.reset_states()
     accFunc.reset_states()
+    for tf1, tf2, tf3, tf4, tf5, tf6, tf7, tf8, tf9, tf10, tf11, tf12 in itertools.zip_longest(train_tf1, train_tf2, train_tf3, train_tf4, train_tf5, train_tf6, train_tf7,
+                                                     train_tf8, train_tf9, train_tf10, train_tf11, train_tf12):
+        if tf1:
+            train_step(tf1[0], tf1[1], 0)
+        if tf2:
+            train_step(tf2[0], tf2[1], 1)
+        if tf3:
+            train_step(tf3[0], tf3[1], 2)
+        if tf4:
+            train_step(tf4[0], tf4[1], 3)
+        if tf5:
+            train_step(tf5[0], tf5[1], 4)
+        if tf6:
+            train_step(tf6[0], tf6[1], 5)
+        if tf7:
+            train_step(tf7[0], tf7[1], 6)
+        if tf8:
+            train_step(tf8[0], tf8[1], 7)
+        if tf9:
+            train_step(tf9[0], tf9[1], 8)
+        if tf10:
+            train_step(tf10[0], tf10[1], 9)
+        if tf11:
+            train_step(tf11[0], tf11[1], 10)
+        if tf12:
+            train_step(tf12[0], tf12[1], 11)
 
-    for (X1, Y1), (X2, Y2), (X3, Y3), (X4, Y4), (X5, Y5), (X6, Y6), (X7, Y7), (X8, Y8), (X9, Y9), (X10, Y10), (
-            X11, Y11), (X12, Y12) in zip(train_tf1, train_tf2, train_tf3, train_tf4, train_tf5, train_tf6, train_tf7,
-                                         train_tf8, train_tf9, train_tf10, train_tf11, train_tf12):
-        train_step(X1, Y1, 0)
-        train_step(X2, Y2, 1)
-        train_step(X3, Y3, 2)
-        train_step(X4, Y4, 3)
-        train_step(X5, Y5, 4)
-        train_step(X6, Y6, 5)
-        train_step(X7, Y7, 6)
-        train_step(X8, Y8, 7)
-        train_step(X9, Y9, 8)
-        train_step(X10, Y10, 9)
-        train_step(X11, Y11, 10)
-        train_step(X12, Y12, 11)
         
     print('Train Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
     f2w.write('Train Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
     f2w.write("\n")
-    if epoch % 2 == 0:
-        for (X1, Y1), (X2, Y2), (X3, Y3), (X4, Y4), (X5, Y5), (X6, Y6), (X7, Y7), (X8, Y8), (X9, Y9), (X10, Y10), (
-                X11, Y11), (X12, Y12) in zip(valid_tf1, valid_tf2, valid_tf3, valid_tf4, valid_tf5, valid_tf6,
+    if epoch % 1 == 0:
+        for tf1, tf2, tf3, tf4, tf5, tf6, tf7, tf8, tf9, tf10, tf11, tf12 in itertools.zip_longest(valid_tf1, valid_tf2, valid_tf3, valid_tf4, valid_tf5, valid_tf6,
                                              valid_tf7, valid_tf8, valid_tf9, valid_tf10, valid_tf11, valid_tf12):
-            eval_step(X1, Y1, 0)
-            eval_step(X2, Y2, 1)
-            eval_step(X3, Y3, 2)
-            eval_step(X4, Y4, 3)
-            eval_step(X5, Y5, 4)
-            eval_step(X6, Y6, 5)
-            eval_step(X7, Y7, 6)
-            eval_step(X8, Y8, 7)
-            eval_step(X9, Y9, 8)
-            eval_step(X10, Y10, 9)
-            eval_step(X11, Y11, 10)
-            eval_step(X12, Y12, 11)
-            
+            if tf1:
+                eval_step(tf1[0], tf1[1], 0)
+            if tf2:
+                eval_step(tf2[0], tf2[1], 1)
+            if tf3:
+                eval_step(tf3[0], tf3[1], 2)
+            if tf4:
+                eval_step(tf4[0], tf4[1], 3)
+            if tf5:
+                eval_step(tf5[0], tf5[1], 4)
+            if tf6:
+                eval_step(tf6[0], tf6[1], 5)
+            if tf7:
+                eval_step(tf7[0], tf7[1], 6)
+            if tf8:
+                eval_step(tf8[0], tf8[1], 7)
+            if tf9:
+                eval_step(tf9[0], tf9[1], 8)
+            if tf10:
+                eval_step(tf10[0], tf10[1], 9)
+            if tf11:
+                eval_step(tf11[0], tf11[1], 10)
+            if tf12:
+                eval_step(tf12[0], tf12[1], 11)
+
+
         if bestAUC < AUCFunc.result():
             bestEpoch = epoch + 1
             bestAUC = AUCFunc.result()
@@ -582,6 +704,8 @@ for epoch in range(args.epochs):
             print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, checkpoint_dir))
         print('Valid prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                               AUCFunc.result(), accFunc.result()))
+        logs = {'auc': AUCFunc.result(), 'loss': train_loss.result()}
+        TC.on_epoch_end(epoch, logs)
 
         f2w.write('Valid prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                                   AUCFunc.result(), accFunc.result()))
@@ -592,6 +716,7 @@ f2w.close()
 
 
 ######testing phase
+testLogits12 = [[] for i in range(12)]
 precFunc.reset_states()
 recallFunc.reset_states()
 AUCFunc.reset_states()
@@ -600,22 +725,37 @@ accFunc.reset_states()
 encoder.load_weights(checkpoint_dir)
 print("weights loaded from the epoch:", bestEpoch)
 
-for (X1, Y1), (X2, Y2), (X3, Y3), (X4, Y4), (X5, Y5), (X6, Y6), (X7, Y7), (X8, Y8), (X9, Y9), (X10, Y10), (
-        X11, Y11), (X12, Y12) in zip(test_tf1, test_tf2, test_tf3, test_tf4, test_tf5, test_tf6,
+for tf1, tf2, tf3, tf4, tf5, tf6, tf7, tf8, tf9, tf10, tf11, tf12 in itertools.zip_longest(test_tf1, test_tf2, test_tf3, test_tf4, test_tf5, test_tf6,
                                      test_tf7, test_tf8, test_tf9, test_tf10, test_tf11, test_tf12):
-    eval_step(X1, Y1, 0)
-    eval_step(X2, Y2, 1)
-    eval_step(X3, Y3, 2)
-    eval_step(X4, Y4, 3)
-    eval_step(X5, Y5, 4)
-    eval_step(X6, Y6, 5)
-    eval_step(X7, Y7, 6)
-    eval_step(X8, Y8, 7)
-    eval_step(X9, Y9, 8)
-    eval_step(X10, Y10, 9)
-    eval_step(X11, Y11, 10)
-    eval_step(X12, Y12, 11)
+    if tf1:
+        test_step(tf1[0], tf1[1], 0, testLogits12)
+    if tf2:
+        test_step(tf2[0], tf2[1], 1, testLogits12)
+    if tf3:
+        test_step(tf3[0], tf3[1], 2, testLogits12)
+    if tf4:
+        test_step(tf4[0], tf4[1], 3, testLogits12)
+    if tf5:
+        test_step(tf5[0], tf5[1], 4, testLogits12)
+    if tf6:
+        test_step(tf6[0], tf6[1], 5, testLogits12)
+    if tf7:
+        test_step(tf7[0], tf7[1], 6, testLogits12)
+    if tf8:
+        test_step(tf8[0], tf8[1], 7, testLogits12)
+    if tf9:
+        test_step(tf9[0], tf9[1], 8, testLogits12)
+    if tf10:
+        test_step(tf10[0], tf10[1], 9, testLogits12)
+    if tf11:
+        test_step(tf11[0], tf11[1], 10, testLogits12)
+    if tf12:
+        test_step(tf12[0], tf12[1], 11, testLogits12)
 
 print('Test prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                      AUCFunc.result(), accFunc.result()))
-
+TC.on_train_end('_')
+if args.pickle_load == False:
+    pickle.dump((embeddings_, dicC2I), open("saved_emb.pkl", "wb"))
+if args.weight_load:
+    pickle.dump(testLogits12, open("logit"+args.current_num,"wb"))
