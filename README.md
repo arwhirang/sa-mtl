@@ -1,2 +1,2 @@
-# gans
-study and apply gan for the Tox21 dataset
+# SA-MTL
+code repository for ICPR 2020 paper ... (under review)
