@@ -35,11 +35,11 @@ parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of m
 parser.add_argument('--epochs', '-e', type=int, default=50, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--proteinTarget', '-p', required=True, help='target data')
-parser.add_argument('--num_layers', type=int, default=5, help='No. of hidden perceptron')
+parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
 parser.add_argument('--d_model', type=int, default=100, help='No. of hidden perceptron')#default 512
 parser.add_argument('--dff', type=int, default=1024, help='No. of hidden perceptron')
 parser.add_argument('--num_heads', type=int, default=5, help='No. of hidden perceptron')
-parser.add_argument('--dropout_rate', '-d', type=float, default=0.5, help='No. of hidden perceptron')
+parser.add_argument('--dropout_rate', '-d', type=float, default=0.1, help='No. of hidden perceptron')
 parser.add_argument('--lr', '-l', type=float, default=0.00005, help='No. of hidden perceptron')
 parser.add_argument('--max_vocab_size', type=int, default=1025, help='No. of output perceptron (class)')
 parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length of smiles')
@@ -47,35 +47,7 @@ parser.add_argument('--seq_size', '-s', type=int, default=200, help='seq length 
 parser.add_argument('--n_hid', type=int, default=256, help='No. of hidden perceptron')
 parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
 args = parser.parse_args()
-"""
-print('start loading data for fp2vec')
-dataX = np.load('tox21_fp.npy')#7439, 1024
-dataY_concat  = np.load('tox21_Y.npy', allow_pickle=True)#12, 7439
-index = np.load('tox21_index.npy', allow_pickle=True)#12, 7439 <= 7439 is just for the first dataset - every dataset has different size.
-print("dataX.shape:", dataX.shape)#8014, 1024
-dataX3 = [dataX[i] for i in index[2]]#NR-AR
 
-
-def prepro_X(inpX):
-    data_x = []
-    for i in range(len(inpX)):
-        fp = [0] * args.seq_size
-        n_ones = 0
-        for j in range(1024):#inpX shape = variable, 1024
-            if inpX[i][j] == 1:
-                fp[n_ones] = j + 1
-                n_ones += 1
-        data_x.append(fp)
-    return np.array(data_x, dtype=np.int32).reshape(-1, args.seq_size)#variable, 200
-
-
-def prepro_Y(inpY):
-    #data_y = [ele for ele in inpY]
-    data_y = []
-    for i in range(len(inpY)):
-        data_y.append(inpY[i])
-    return np.array(data_y, dtype=np.int32)#variable
-"""
 
 def posNegNums(ydata):
     cntP = 0
@@ -93,73 +65,6 @@ def random_list(x, seed=0):
     np.random.seed(seed)
     np.random.shuffle(x)
 
-"""
-_dataX3, _dataY3 = prepro_X(dataX3), prepro_Y(dataY_concat[2])#NR-AR
-random_list(_dataX3)
-random_list(_dataY3)
-pos_num, neg_num = posNegNums(_dataY3)
-train_x, test_x, train_y, test_y = train_test_split(_dataX3, _dataY3, test_size=0.1)
-train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)#batchsize, 200
-test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-"""
-
-def makeData_scfp(proteinName):
-    # load data =========================================
-    print('start loading train data')
-    afile = args.input + '/' + proteinName + '_wholetraining.smiles'
-
-#############
-#    afile = args.input + '/' + proteinName + '_fakelabels'
-#############
-
-    smi = Chem.SmilesMolSupplier(afile, delimiter=' ', titleLine=False)  # smi var will not be used afterwards
-    mols = [mol for mol in smi if mol is not None]
-
-##############
-#    realY = []
-#    f = open('TOX21/NR-AR_wholetraining.smiles', 'r')
-#    lines = f.readlines()
-##############
-
-    # Make Feature Matrix ===============================
-    F_list, T_list = [], []
-    for i, mol in enumerate(mols):
-        if len(Chem.MolToSmiles(mol, kekuleSmiles=True, isomericSmiles=True)) > args.atomsize:
-            print("too long mol was ignored")
-        else:
-            F_list.append(mol_to_feature(mol, -1, args.atomsize))
-            T_list.append(mol.GetProp('_Name'))
-
-###############
-#            splitted = lines[i].split(" ")
-#            realY.append(int(splitted[1]))
-#    f.close()
-#    T_list = realY
-###############
-
-    # Setting Dataset to model ==========================
-    scaler = StandardScaler()
-    F_list_scaled = scaler.fit_transform(F_list)
-    F_list_scaled = np.clip(F_list_scaled, -5, 5)
-    random_list(F_list_scaled)
-    random_list(T_list)
-    train_x, test_x, train_y, test_y = train_test_split(F_list_scaled, T_list, test_size=0.1)
-    #train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
-
-    train_y = np.asarray(train_y, dtype=np.int32).reshape(-1)
-    train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    pos_num, neg_num = posNegNums(train_y)
-    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    #valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
-    #valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    #valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
-    test_y = np.asarray(test_y, dtype=np.int32).reshape(-1)
-    test_x = np.asarray(test_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-    return train_tf, test_tf, pos_num, neg_num
-
-
-#train_tf, test_tf, pos_num, neg_num = makeData_scfp("NR-AR")
 
 def char2indices(listStr, dicC2I):
     listIndices = [0]*200
@@ -272,8 +177,8 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
 def point_wise_feed_forward_network(d_model_, dff_):
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(dff_, activation="relu"),#dff_, activation='relu'),  # (batch_size, seq_len, dff)
-        tf.keras.layers.Dense(d_model_)#d_model_)  # (batch_size, seq_len, d_model)
+        tf.keras.layers.Dense(dff_, activation="relu", bias_initializer='glorot_uniform', use_bias=True),#dff_, activation='relu'),  # (batch_size, seq_len, dff)
+        tf.keras.layers.Dense(d_model_, bias_initializer='glorot_uniform', use_bias=True)#d_model_)  # (batch_size, seq_len, d_model)
     ])
 
 
@@ -381,7 +286,6 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = args.lr#0.0001#CustomSchedule(args.d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-#loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction=tf.keras.losses.Reduction.SUM)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 AUCFunc = tf.keras.metrics.AUC()
@@ -417,28 +321,16 @@ def create_padding_mask_scfp(seq):
     return seq[:, tf.newaxis, tf.newaxis, :], seq# (batch_size, 1, 1, atom_size)
 
 
-# The @tf.function trace-compiles train_step into a TF graph for faster
-# execution. The function specializes to the precise shape of the argument
-# tensors. To avoid re-tracing due to the variable sequence lengths or variable
-# batch sizes (the last batch is smaller), use input_signature to specify
-# more generic shapes.
-train_step_signature = [
-    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
-    tf.TensorSpec(shape=(None, None), dtype=tf.int32),
-]
-
 bit_size = 1024 # circular fingerprint
 emb = tf.Variable(tf.random.uniform([bit_size, args.d_model], -1, 1), dtype=tf.float32)
 pads = tf.constant([[1,0], [0,0]])
 embeddings_ = tf.pad(emb, pads)#1025, 200
 
-#tf.function(input_signature=train_step_signature)
+
 def train_step(inp_, real):  # shape is [batch, seq_len]
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
     with tf.GradientTape() as tape:
-        #predictions, _ = transformer(inp_, tar_inp, True, enc_padding_mask, combined_mask, dec_padding_mask)
         pred_logit_, pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), True, inp_padding_mask, justmask)
-        #pred_logit_, pred = encoder(inp_, True, inp_padding_mask, justmask)
         loss = loss_function(real, pred_logit_, sampleW=weight_for_1)
     gradients = tape.gradient(loss, encoder.trainable_variables)
     optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
@@ -448,7 +340,6 @@ def train_step(inp_, real):  # shape is [batch, seq_len]
 def eval_step(inp_, real):
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
     _, pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), False, inp_padding_mask, justmask)
-    #_, pred = encoder(inp_, False, inp_padding_mask, justmask)
     precFunc.update_state(y_true=real, y_pred=pred)
     recallFunc.update_state(y_true=real, y_pred=pred)
     AUCFunc.update_state(y_true=real, y_pred=pred)
@@ -456,7 +347,6 @@ def eval_step(inp_, real):
 
 
 checkpoint_dir = "tr0/cp.ckpt"
-#checkpoint_dir = os.path.dirname(checkpoint_path)
 f2w = open("performance", "w")
 
 bestAUC = 0
