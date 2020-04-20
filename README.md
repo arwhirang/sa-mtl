@@ -3,6 +3,14 @@ code repository for ICPR 2020 paper : Predicting Chemical Properties using Self-
 
 Original transformer code from: https://github.com/tensorflow/docs/blob/master/site/en/tutorials/text/transformer.ipynb
 
+## Dependency  
+(latest versions will do)  
+rdkit   
+numpy  
+sklearn  
+tensorflow version 2  
+
+## Running code
 To run the singleTask.py for a specific task such as NR-AR:   
 python3 singleTask.py -p NR-AR  
   
