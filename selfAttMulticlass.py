@@ -1,18 +1,12 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-# try:
-#     !pip install tf-nightly
-# except Exception:
-#     pass
 import tensorflow as tf
 
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 import os
 import argparse
 from rdkit import Chem
-from feature import *
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import pickle
@@ -43,8 +37,8 @@ parser = argparse.ArgumentParser(description='argparse')
 parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of moleculars in each mini-batch')
 parser.add_argument('--epochs', '-e', type=int, default=0, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
-parser.add_argument('--num_layers', type=int, default=5, help='No. of hidden perceptron')
-parser.add_argument('--d_model', type=int, default=100, help='No. of hidden perceptron')  # default 512
+parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
+parser.add_argument('--d_model', type=int, default=128, help='No. of hidden perceptron')  # default 512
 parser.add_argument('--dff', type=int, default=1024, help='No. of hidden perceptron')
 parser.add_argument('--num_heads', type=int, default=1, help='No. of hidden perceptron')
 parser.add_argument('--dropout_rate', '-d', type=float, default=0.1, help='No. of hidden perceptron')
@@ -59,47 +53,6 @@ parser.add_argument('--current_num', default="2", help='name says it')
 parser.add_argument('--n_out', type=int, default=2, help='No. of output perceptron (class)')
 args = parser.parse_args()
 
-"""
-print('start loading data for fp2vec')
-dataX = np.load('tox21_fp.npy')#7439, 1024
-dataY_concat  = np.load('tox21_Y.npy', allow_pickle=True)#12, 7439
-index = np.load('tox21_index.npy', allow_pickle=True)#12, 7439 <= 7439 is just for the first dataset - every dataset has different size.
-print("dataX.shape:", dataX.shape)#8014, 1024
-
-dataX1 = [dataX[i] for i in index[0]]
-dataX2 = [dataX[i] for i in index[1]]
-dataX3 = [dataX[i] for i in index[2]]
-dataX4 = [dataX[i] for i in index[3]]
-dataX5 = [dataX[i] for i in index[4]]
-dataX6 = [dataX[i] for i in index[5]]
-dataX7 = [dataX[i] for i in index[6]]
-dataX8 = [dataX[i] for i in index[7]]
-dataX9 = [dataX[i] for i in index[8]]
-dataX10 = [dataX[i] for i in index[9]]
-dataX11 = [dataX[i] for i in index[10]]
-dataX12 = [dataX[i] for i in index[11]]
-
-
-def prepro_X(inpX):
-    data_x = []
-    for i in range(len(inpX)):
-        fp = [0] * args.seq_size
-        n_ones = 0
-        for j in range(1024):#inpX shape = variable, 1024
-            if inpX[i][j] == 1:
-                fp[n_ones] = j + 1
-                n_ones += 1
-        data_x.append(fp)
-    return np.array(data_x, dtype=np.int32).reshape(-1, args.seq_size)#variable, 200
-
-
-def prepro_Y(inpY):
-    #data_y = [ele for ele in inpY]
-    data_y = []
-    for i in range(len(inpY)):
-        data_y.append(inpY[i])
-    return np.array(data_y, dtype=np.float32)#variable
-"""
 
 def posNegNums(ydata):
     cntP = 0
@@ -117,89 +70,7 @@ def random_list(x, seed=0):
     np.random.seed(seed)
     np.random.shuffle(x)
 
-"""
-def in1Func(x, y):
-    _dataX, _dataY = prepro_X(x), prepro_Y(y)
-    train_x, test_x, train_y, test_y = train_test_split(_dataX, _dataY, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
-    random_list(train_x)
-    random_list(train_y)
-    pos_num, neg_num = posNegNums(train_y)
-    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
-    test_tf  = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-    return train_tf, valid_tf, test_tf, pos_num, neg_num
-
-pos_num, neg_num = 0, 0
-train_tf1, valid_tf1, test_tf1, pos1, neg1 = in1Func(dataX1, dataY_concat[0])
-train_tf2, valid_tf2, test_tf2, pos2, neg2 = in1Func(dataX2, dataY_concat[1])
-train_tf3, valid_tf3, test_tf3, pos3, neg3 = in1Func(dataX3, dataY_concat[2])
-train_tf4, valid_tf4, test_tf4, pos4, neg4 = in1Func(dataX4, dataY_concat[3])
-train_tf5, valid_tf5, test_tf5, pos5, neg5 = in1Func(dataX5, dataY_concat[4])
-train_tf6, valid_tf6, test_tf6, pos6, neg6 = in1Func(dataX6, dataY_concat[5])
-train_tf7, valid_tf7, test_tf7, pos7, neg7 = in1Func(dataX7, dataY_concat[6])
-train_tf8, valid_tf8, test_tf8, pos8, neg8 = in1Func(dataX8, dataY_concat[7])
-train_tf9, valid_tf9, test_tf9, pos9, neg9 = in1Func(dataX9, dataY_concat[8])
-train_tf10, valid_tf10, test_tf10, pos10, neg10 = in1Func(dataX10, dataY_concat[9])
-train_tf11, valid_tf11, test_tf11, pos11, neg11 = in1Func(dataX11, dataY_concat[10])
-train_tf12, valid_tf12, test_tf12, pos12, neg12 = in1Func(dataX12, dataY_concat[11])
-pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
-neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
-print("pos/neg:", pos_num, neg_num)
-"""
-
-def makeData_scfp(proteinName):
-    # load data =========================================
-    print('start loading train data')
-    afile = args.input + '/' + proteinName + '_wholetraining.smiles'
-    #############
-    #    afile = args.input + '/' + proteinName + '_fakelabels'
-    #############
-    smi = Chem.SmilesMolSupplier(afile, delimiter=' ', titleLine=False)  # smi var will not be used afterwards
-    mols = [mol for mol in smi if mol is not None]
-    ##############
-    #    realY = []
-    #    f = open('TOX21/NR-AR_wholetraining.smiles', 'r')
-    #    lines = f.readlines()
-    ##############
-    # Make Feature Matrix ===============================
-    F_list, T_list = [], []
-    for i, mol in enumerate(mols):
-        if len(Chem.MolToSmiles(mol, kekuleSmiles=True, isomericSmiles=True)) > args.atomsize:
-            print("too long mol was ignored")
-        else:
-            F_list.append(mol_to_feature(mol, -1, args.atomsize))
-            T_list.append(mol.GetProp('_Name'))
-    ###############
-    #            splitted = lines[i].split(" ")
-    #            realY.append(int(splitted[1]))
-    #    f.close()
-    #    T_list = realY
-    ###############
-    # Setting Dataset to model ==========================
-    scaler = StandardScaler()
-    F_list_scaled = scaler.fit_transform(F_list)
-    F_list_scaled = np.clip(F_list_scaled, -5, 5)
-    random_list(F_list_scaled)
-    random_list(T_list)
-    train_x, test_x, train_y, test_y = train_test_split(F_list_scaled, T_list, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1111)
-
-    train_y = np.asarray(train_y, dtype=np.int32).reshape(-1)
-    train_x = np.asarray(train_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    pos_num, neg_num = posNegNums(train_y)
-    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize)
-    valid_y = np.asarray(valid_y, dtype=np.int32).reshape(-1)
-    valid_x = np.asarray(valid_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize)
-    test_y = np.asarray(test_y, dtype=np.int32).reshape(-1)
-    test_x = np.asarray(test_x, dtype=np.float32).reshape(-1, args.atomsize, lensize)
-    test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
-    return train_tf, valid_tf, test_tf, pos_num, neg_num
-
-
-# train_tf, valid_tf, test_tf, pos_num, neg_num = makeData_scfp("NR-AR")
-
+    
 def char2indices(listStr, dicC2I):
     listIndices = [0] * 200
     charlist = listStr
@@ -397,24 +268,7 @@ class CustomFC(tf.keras.layers.Layer):
         out = tf.keras.layers.Reshape([seq_len])(out)
         out = self.finalFC2(out)
         return out
-
-class CustomFCVer2(tf.keras.layers.Layer):
-    def __init__(self, output_bias, d_model_, num_heads_, dff_, rate, num_layers_):
-        super(CustomFCVer2, self).__init__()
-        self.d_model = d_model_
-        self.finalFC1 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
-        self.finalFC2 = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)
-        self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
-        self.num_layers = num_layers_
-
-    def call(self, inputs, seq_len, training, mask_att):
-        for i in range(self.num_layers):
-            inputs = self.enc_layers[i](inputs, training, mask_att)
-        out = self.finalFC1(inputs)
-        out = tf.keras.layers.Reshape([seq_len])(out)
-        out = self.finalFC2(out)
-        return out
-
+    
 
 class CustomHot(tf.keras.layers.Layer):
     def __init__(self):
@@ -484,53 +338,6 @@ class Encoder(tf.keras.Model):
         return pred_logit, tf.math.sigmoid(pred_logit)
 
 
-class EncoderVer2(tf.keras.Model):
-    def __init__(self, num_layers_, d_model_, num_heads_, dff_, output_bias, rate=0.1, seq_size=None):  # input_vocab and max_vocab are the same
-        super(EncoderVer2, self).__init__()
-        if output_bias is not None:
-            output_bias = tf.keras.initializers.Constant(output_bias)
-        self.seq_len = seq_size
-        self.d_model = d_model_
-        self.num_layers = num_layers_
-        self.dropout = tf.keras.layers.Dropout(rate)
-        self.pads1 = tf.constant([[0, 0], [0, 7 - 1], [0, 0]])
-        self.conv1 = tf.keras.layers.Conv2D(d_model_, [7, d_model_], strides=1)
-        self.FC1 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC2 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC3 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC4 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC5 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC6 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC7 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC8 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC9 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC10 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC11 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-        self.FC12 = CustomFCVer2(output_bias, self.d_model, num_heads_, dff_, rate, self.num_layers)
-                                                                                                    
-    def call(self, x_, whichClass, training, mask_att, justmask):
-        x_ = tf.keras.layers.Reshape([self.seq_len, self.d_model, 1])(x_)
-        x_ = self.conv1(x_)
-        x_ = tf.keras.layers.Reshape([self.seq_len - 7 + 1, self.d_model])(x_)
-        x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
-        out = self.dropout(x_, training=training)
-        cl1 = self.FC1(out, self.seq_len, training, mask_att)
-        cl2 = self.FC2(out, self.seq_len, training, mask_att)
-        cl3 = self.FC3(out, self.seq_len, training, mask_att)
-        cl4 = self.FC4(out, self.seq_len, training, mask_att)
-        cl5 = self.FC5(out, self.seq_len, training, mask_att)
-        cl6 = self.FC6(out, self.seq_len, training, mask_att)
-        cl7 = self.FC7(out, self.seq_len, training, mask_att)
-        cl8 = self.FC8(out, self.seq_len, training, mask_att)
-        cl9 = self.FC9(out, self.seq_len, training, mask_att)
-        cl10 = self.FC10(out, self.seq_len, training, mask_att)
-        cl11 = self.FC11(out, self.seq_len, training, mask_att)
-        cl12 = self.FC12(out, self.seq_len, training, mask_att)
-        x_out = tf.keras.layers.concatenate([cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, cl10, cl11, cl12])
-        decideWhich = CustomHot()(whichClass)
-        pred_logit = CustomRSum()(x_out, decideWhich)
-        return pred_logit, tf.math.sigmoid(pred_logit)
-
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, d_model_, warmup_steps=4000):
         super(CustomSchedule, self).__init__()
@@ -546,7 +353,6 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = args.lr  # 0.0001#CustomSchedule(args.d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate)  # , beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-#loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False, reduction=tf.keras.losses.Reduction.SUM)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 AUCFunc = tf.keras.metrics.AUC()
@@ -561,7 +367,6 @@ encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, outpu
 TC.set_model(encoder)
 
 def loss_function(real, pred_logit, sampleW=None):
-    #loss_ = loss_object(real, pred)
     cross_ent = tf.nn.weighted_cross_entropy_with_logits(logits=pred_logit, labels=real, pos_weight=sampleW)
     return tf.reduce_mean(cross_ent)
 
@@ -582,7 +387,6 @@ def create_padding_mask_scfp(seq):
 
 
 
-
 checkpoint_dir = "trS"+args.current_num+"/cp.ckpt"
 if args.pickle_load == False:
     bit_size = len(dicC2I) #1024
@@ -591,12 +395,11 @@ if args.pickle_load == False:
     embeddings_ = tf.pad(emb, pads)#1025, 200
     encoder.save_weights(checkpoint_dir)
 else:
-    #embeddings_ = pickle.load(open("saved_emb.pkl", "rb"))
     print("embedding loaded already")
     if args.weight_load == True:
         encoder.load_weights(checkpoint_dir)
 
-# @tf.function(input_signature=train_step_signature)
+        
 def train_step(inp_, real, whichClass):  # shape is [batch, seq_len]
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
     with tf.GradientTape() as tape:
