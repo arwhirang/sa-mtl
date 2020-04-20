@@ -8,11 +8,9 @@ import tensorflow as tf
 
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 import os
 import argparse
 from rdkit import Chem
-from feature import *
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
