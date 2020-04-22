@@ -310,28 +310,27 @@ class Encoder(tf.keras.Model):
         self.FC12 = CustomFC(output_bias, self.d_model)
 
     def call(self, x_, whichClass, training, mask_att, justmask):
-        seq_len = tf.shape(x_)[1]
         # x_.set_shape([None, self.seq_size])
         # adding embedding and position encoding.
-        x_ = tf.keras.layers.Reshape([seq_len, self.d_model, 1])(x_)
+        x_ = tf.keras.layers.Reshape([self.seq_size, self.d_model, 1])(x_)
         x_ = self.conv1(x_)
-        x_ = tf.keras.layers.Reshape([seq_len - 7 + 1, self.d_model])(x_)
+        x_ = tf.keras.layers.Reshape([self.seq_size - 7 + 1, self.d_model])(x_)
         x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
         for i in range(self.num_layers):
             x_ = self.enc_layers[i](x_, training, mask_att)
         out = self.dropout(x_, training=training)
-        cl1 = self.FC1(out, seq_len)
-        cl2 = self.FC2(out, seq_len)
-        cl3 = self.FC3(out, seq_len)
-        cl4 = self.FC4(out, seq_len)
-        cl5 = self.FC5(out, seq_len)
-        cl6 = self.FC6(out, seq_len)
-        cl7 = self.FC7(out, seq_len)
-        cl8 = self.FC8(out, seq_len)
-        cl9 = self.FC9(out, seq_len)
-        cl10 = self.FC10(out, seq_len)
-        cl11 = self.FC11(out, seq_len)
-        cl12 = self.FC12(out, seq_len)#batch, 2
+        cl1 = self.FC1(out, self.seq_size)
+        cl2 = self.FC2(out, self.seq_size)
+        cl3 = self.FC3(out, self.seq_size)
+        cl4 = self.FC4(out, self.seq_size)
+        cl5 = self.FC5(out, self.seq_size)
+        cl6 = self.FC6(out, self.seq_size)
+        cl7 = self.FC7(out, self.seq_size)
+        cl8 = self.FC8(out, self.seq_size)
+        cl9 = self.FC9(out, self.seq_size)
+        cl10 = self.FC10(out, self.seq_size)
+        cl11 = self.FC11(out, self.seq_size)
+        cl12 = self.FC12(out, self.seq_size)#batch, 2
         x_out = tf.keras.layers.concatenate([cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, cl10, cl11, cl12])#default axis -1 ==> batch, 12
         decideWhich = CustomHot()(whichClass)
         pred_logit = CustomRSum()(x_out, decideWhich)
