@@ -35,7 +35,7 @@ else:
 
 parser = argparse.ArgumentParser(description='argparse')
 parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of moleculars in each mini-batch')
-parser.add_argument('--epochs', '-e', type=int, default=0, help='Number of sweeps over the dataset to train')
+parser.add_argument('--epochs', '-e', type=int, default=50, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
 parser.add_argument('--d_model', type=int, default=128, help='No. of hidden perceptron')  # default 512
