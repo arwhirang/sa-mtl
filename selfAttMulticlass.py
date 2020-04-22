@@ -50,7 +50,7 @@ parser.add_argument('--n_hid', type=int, default=256, help='No. of hidden percep
 parser.add_argument('--pickle_load', type=bool, default=False, help='pickle embedding')
 parser.add_argument('--weight_load', type=bool, default=False, help='pickle embedding')
 parser.add_argument('--current_num', default="2", help='name says it')
-parser.add_argument('--n_out', type=int, default=2, help='No. of output perceptron (class)')
+parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
 args = parser.parse_args()
 
 
