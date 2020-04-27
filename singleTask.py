@@ -223,47 +223,30 @@ class Encoder(tf.keras.Model):
         self.seq_size = seq_len
         self.d_model = d_model_
         self.num_layers = num_layers_
-        #self.embedding = tf.keras.layers.Embedding(maximum_position_encoding, d_model_, mask_zero=True)
-        #self.pos_encoding = positional_encoding(maximum_position_encoding, self.d_model)
         self.enc_layers = [EncoderLayer(d_model_, num_heads_, dff_, rate) for _ in range(num_layers_)]
-        #self.enc_layers = EncoderLayer(d_model_, num_heads_, dff_, rate)
         self.dropout = tf.keras.layers.Dropout(rate)
-        #self.semi_final = tf.keras.layers.RNN(tf.keras.layers.GRUCell(args.n_hid, recurrent_initializer='glorot_uniform'))
         self.semi_final = tf.keras.layers.Dense(1)
         
-        self.gru = tf.keras.layers.GRU(self.d_model, return_sequences=True)
-        self.bidrect = tf.keras.layers.Bidirectional(self.gru, merge_mode='sum')
-        #self.pads1 = tf.constant([[0, 0], [0, 5-1], [0, 0]])
-        #self.conv1 = tf.keras.layers.Conv2D(self.d_model, [5, self.d_model], strides=1)
-        #self.maxp = tf.keras.layers.MaxPool1D([196])
+        #self.gru = tf.keras.layers.GRU(self.d_model, return_sequences=True)
+        self.pads1 = tf.constant([[0, 0], [0, 5-1], [0, 0]])
+        self.conv1 = tf.keras.layers.Conv2D(self.d_model, [5, self.d_model], strides=1)
         self.final_layer = tf.keras.layers.Dense(args.n_out, bias_initializer=output_bias)#, activation='sigmoid'
 
     def call(self, x_, training, mask_att, justmask):
-        #seq_len = tf.shape(x_)[1]
-        #x_.set_shape([None, self.seq_size])
-        # adding embedding and position encoding.
-        #x_ = self.embedding(inputs)  # (batch_size, input_seq_len, d_model)
-        #mask_ = self.embedding.compute_mask(inputs)
+        
         #x_ *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         #x_ += self.pos_encoding[:, :seq_len, :]
-        #x_ = self.dropout(x_, training=training)## <= reached 85
-
-        #x_ = tf.keras.layers.Reshape([seq_len, self.d_model, 1])(x_)
-        #x_ = self.conv1(x_)
-        #x_ = tf.keras.layers.Reshape([seq_len-5+1, self.d_model])(x_)
-        #x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
-        x_ = self.gru(x_, mask=justmask)
-        #x_ = self.bidrect(x_)
+        x_ = tf.keras.layers.Reshape([self.seq_size, self.d_model, 1])(x_)
+        x_ = self.conv1(x_)
+        x_ = tf.keras.layers.Reshape([self.seq_size-5+1, self.d_model])(x_)
+        x_ = tf.pad(x_, self.pads1)#shape (batch, 200, d_model)
+        #x_ = self.gru(x_, mask=justmask)
         for i in range(self.num_layers):
             x_ = self.enc_layers[i](x_, training, mask_att)
 
-        #x_ = self.enc_layers(x_, training, mask_att)
-        # x shape (batch_size, input_seq_len, d_model)
-        ##x_ = self.conv1(x_) # (batch_size, seq_len-5+1, 1024)
         x_ = self.dropout(x_, training=training) ##<= reached 89
         out = self.semi_final(x_)
         out = tf.keras.layers.Reshape([self.seq_size])(out)#since final layer has dimension size of 1
-        #out = self.dropout(out, training=training) ##<= reached 88
         out = self.final_layer(out) # (batch_size, 1)
         out = tf.squeeze(out, axis=[1])
         return out, tf.math.sigmoid(out)
