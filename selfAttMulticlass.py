@@ -19,14 +19,14 @@ except OSError as e:
     print("Error: %s : %s" % (log_path, e.strerror))
     TC = tf.keras.callbacks.TensorBoard("logs", 2, write_graph=True)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
 print("current pid:", os.getpid())
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
-        tf.config.experimental.set_visible_devices(gpus[1], 'GPU')
-        tf.config.experimental.set_memory_growth(gpus[1], True)
+        tf.config.experimental.set_visible_devices(gpus[3], 'GPU')
+        tf.config.experimental.set_memory_growth(gpus[3], True)
         print("should be ok...right?")
     except RuntimeError as e:
         print(e)
@@ -34,7 +34,7 @@ else:
     print("gpu unlimited?")
 
 parser = argparse.ArgumentParser(description='argparse')
-parser.add_argument('--batchsize', '-b', type=int, default=51, help='Number of moleculars in each mini-batch')
+parser.add_argument('--batchsize', '-b', type=int, default=128, help='Number of moleculars in each mini-batch')
 parser.add_argument('--epochs', '-e', type=int, default=50, help='Number of sweeps over the dataset to train')
 parser.add_argument('--input', '-i', default='./TOX21', help='Input SDFs Dataset')
 parser.add_argument('--num_layers', type=int, default=7, help='No. of hidden perceptron')
@@ -45,12 +45,14 @@ parser.add_argument('--dropout_rate', '-d', type=float, default=0.1, help='No. o
 parser.add_argument('--lr', '-l', type=float, default=0.00005, help='No. of hidden perceptron')
 parser.add_argument('--max_vocab_size', type=int, default=1025, help='')
 parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length of smiles')
-parser.add_argument('--seq_size', '-s', type=int, default=200, help='seq length of smiles fp2vec')
-parser.add_argument('--n_hid', type=int, default=256, help='No. of hidden perceptron')
+parser.add_argument('--seq_size', '-s', type=int, default=400, help='seq length of smiles fp2vec')
 parser.add_argument('--pickle_load', type=bool, default=False, help='pickle embedding')
 parser.add_argument('--weight_load', type=bool, default=False, help='pickle embedding')
-parser.add_argument('--current_num', default="2", help='name says it')
+parser.add_argument('--_test', type=bool, default=False, help='pickle embedding')#True
+parser.add_argument('--current_num', default="for3", help='name says it')
 parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
+parser.add_argument('--num_randoms', type=int, default=5, help='No. of output perceptron (class)')
+
 args = parser.parse_args()
 
 
@@ -70,16 +72,52 @@ def random_list(x, seed=0):
     np.random.seed(seed)
     np.random.shuffle(x)
 
-    
-def char2indices(listStr, dicC2I):
-    listIndices = [0] * 200
+
+def char2indices_no2(listStr, dicC2I):
+    listIndices = [0] * args.seq_size
     charlist = listStr
     for i, c in enumerate(charlist):
         if c not in dicC2I:
-            dicC2I[c] = len(dicC2I)
+            dicC2I[c] = len(dicC2I) + 1
             listIndices[i] = dicC2I[c]
         else:
             listIndices[i] = dicC2I[c]
+    return listIndices
+
+
+def char2indices(listStr, dicC2I):
+    listIndices = [0] * args.seq_size
+    charlist = listStr
+    size = len(listStr)
+    twoChars = {"Al": 1, "Au": 1, "Ag": 1, "As": 1, "Ba": 1, "Be": 1, "Bi": 1, "Br": 1, "Ca": 1, "Cd": 1, "Cl": 1,
+                "Co": 1, "Cr": 1, "Cu": 1, "Dy": 1, "Fe": 1, "Gd": 1, "Ge": 1, "In": 1, "Li": 1, "Mg": 1, "Mn": 1,
+                "Mo": 1, "Na": 1, "Ni": 1, "Nd": 1, "Pb": 1, "Pt": 1, "Pd": 1, "Ru": 1, "Sb": 1, "Se": 1, "se": 1,
+                "Si": 1, "Sn": 1, "Sr": 1, "Ti": 1, "Tl": 1, "Yb": 1, "Zn": 1, "Zr": 1}
+    prevTwoCharsFlag = False
+    indexForList = 0
+    for i, c in enumerate(charlist):
+        if prevTwoCharsFlag:
+            prevTwoCharsFlag = False
+            continue
+        
+        if i != size - 1 and "".join(charlist[i:i+2]) in twoChars:
+            two = "".join(charlist[i:i+2])
+            if two not in dicC2I:
+                dicC2I[two] = len(dicC2I) + 1
+                listIndices[indexForList] = dicC2I[two]
+                indexForList += 1
+            else:
+                listIndices[indexForList] = dicC2I[two]
+                indexForList += 1
+            prevTwoCharsFlag = True
+        else:    
+            if c not in dicC2I:
+                dicC2I[c] = len(dicC2I) + 1
+                listIndices[indexForList] = dicC2I[c]
+                indexForList += 1
+            else:
+                listIndices[indexForList] = dicC2I[c]
+                indexForList += 1
     return listIndices
 
 
@@ -92,20 +130,24 @@ def makeDataForSmilesOnly(proteinName, dicC2I):
     weirdButUseful = 0
     for line in lines:
         splitted = line.split(" ")
-        if len(splitted[0]) >= 200:
+        if len(splitted[0]) >= args.seq_size:
             cntTooLong += 1
             if splitted[1] == "1":
                 weirdButUseful += 1
             continue
-        listX.append(char2indices(splitted[0], dicC2I))  # length can vary
+        listX.append(char2indices_no2(splitted[0], dicC2I))  # length can vary
         listY.append(float(splitted[1]))
     f.close()
+
     # print("how many weird cases exist?", cntTooLong, weirdButUseful)
-    random_list(listX)
-    random_list(listY)
-    #train_x, test_x, train_y, test_y = train_test_split(listX, listY, test_size=0.1)
-    train_x, valid_x, train_y, valid_y = train_test_split(listX, listY, test_size=0.1)#111)
+    train_x, test_x, train_y, test_y = train_test_split(listX, listY, test_size=0.1)
+    train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size=0.1)
     pos_num, neg_num = posNegNums(train_y)
+    train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize).shuffle(10000)
+    valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize).shuffle(10000)
+    test_tf = tf.data.Dataset.from_tensor_slices((test_x, test_y)).batch(args.batchsize)
+    """
+    train_x, valid_x, train_y, valid_y = train_test_split(listX, listY, test_size=0.1)
     train_tf = tf.data.Dataset.from_tensor_slices((train_x, train_y)).batch(args.batchsize).shuffle(10000)
     valid_tf = tf.data.Dataset.from_tensor_slices((valid_x, valid_y)).batch(args.batchsize).shuffle(10000)
 
@@ -115,35 +157,63 @@ def makeDataForSmilesOnly(proteinName, dicC2I):
     lines = testf.readlines()
     for line in lines:
         splitted = line.split("\t")
-        if len(splitted[0]) >= 200:
+        if len(splitted[0]) >= args.seq_size:
             continue
         testlistX.append(char2indices(splitted[0], dicC2I))  # length can vary
         testlistY.append(float(splitted[1]))
     testf.close()
-    #print(len(testlistY))
+
     test_tf = tf.data.Dataset.from_tensor_slices((testlistX, testlistY)).batch(args.batchsize)
-    return train_tf, valid_tf, test_tf, pos_num, neg_num
+    """
+    return train_tf, valid_tf, test_tf, pos_num, neg_num, train_x, valid_x, test_x#testlistX
+
+
+def makeDataForSmilesOnly_aop(proteinName, dicC2I):
+    listX, listY = [], []
+    afile = ""
+    if proteinName == "ar":
+        afile = 'aop/cleandata_androgen_ec50_check.csv'
+    f = open(afile, "r")
+    lines = f.readlines()
+    for idx, line in enumerate(lines):
+        if idx == 0:
+            continue
+        splitted = line.split(",")
+        if len(splitted[13]) >= args.seq_size:
+            continue
+        listX.append(char2indices(splitted[13], dicC2I))  # length can vary
+        listY.append(float(splitted[4]))
+    f.close()
+    pos_num, neg_num = 1, 1
+    data_tf = tf.data.Dataset.from_tensor_slices((listX, listY)).batch(args.batchsize)
+    return data_tf, pos_num, neg_num, listX, listY
 
 
 if args.pickle_load:
-    embeddings_, dicC2I = pickle.load(open("saved_emb.pkl", "rb"))
+    embeddings_, dicC2I = pickle.load(open(args.current_num+"saved_emb.pkl", "rb"))
 else:
     dicC2I = {}
 pos_num, neg_num = 0, 0
-train_tf1, valid_tf1, test_tf1, pos1, neg1 = makeDataForSmilesOnly("NR-AR-LBD", dicC2I)
-train_tf2, valid_tf2, test_tf2, pos2, neg2 = makeDataForSmilesOnly("NR-AR", dicC2I)
-train_tf3, valid_tf3, test_tf3, pos3, neg3 = makeDataForSmilesOnly("NR-AhR", dicC2I)
-train_tf4, valid_tf4, test_tf4, pos4, neg4 = makeDataForSmilesOnly("NR-Aromatase", dicC2I)
-train_tf5, valid_tf5, test_tf5, pos5, neg5 = makeDataForSmilesOnly("NR-ER-LBD", dicC2I)
-train_tf6, valid_tf6, test_tf6, pos6, neg6 = makeDataForSmilesOnly("NR-ER", dicC2I)
-train_tf7, valid_tf7, test_tf7, pos7, neg7 = makeDataForSmilesOnly("NR-PPAR-gamma", dicC2I)
-train_tf8, valid_tf8, test_tf8, pos8, neg8 = makeDataForSmilesOnly("SR-ARE", dicC2I)
-train_tf9, valid_tf9, test_tf9, pos9, neg9 = makeDataForSmilesOnly("SR-ATAD5", dicC2I)
-train_tf10, valid_tf10, test_tf10, pos10, neg10 = makeDataForSmilesOnly("SR-HSE", dicC2I)
-train_tf11, valid_tf11, test_tf11, pos11, neg11 = makeDataForSmilesOnly("SR-MMP", dicC2I)
-train_tf12, valid_tf12, test_tf12, pos12, neg12 = makeDataForSmilesOnly("SR-p53", dicC2I)
-pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
-neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
+
+
+if not args.aop_test:
+    train_tf1, valid_tf1, test_tf1, pos1, neg1, _, _, _ = makeDataForSmilesOnly("NR-AR-LBD", dicC2I)
+    train_tf2, valid_tf2, test_tf2, pos2, neg2, train2, valid2, test2 = makeDataForSmilesOnly("NR-AR", dicC2I)
+    train_tf3, valid_tf3, test_tf3, pos3, neg3, _, _, _ = makeDataForSmilesOnly("NR-AhR", dicC2I)
+    train_tf4, valid_tf4, test_tf4, pos4, neg4, _, _, _ = makeDataForSmilesOnly("NR-Aromatase", dicC2I)
+    train_tf5, valid_tf5, test_tf5, pos5, neg5, _, _, _ = makeDataForSmilesOnly("NR-ER-LBD", dicC2I)
+    train_tf6, valid_tf6, test_tf6, pos6, neg6, _, _, _ = makeDataForSmilesOnly("NR-ER", dicC2I)
+    train_tf7, valid_tf7, test_tf7, pos7, neg7, _, _, _ = makeDataForSmilesOnly("NR-PPAR-gamma", dicC2I)
+    train_tf8, valid_tf8, test_tf8, pos8, neg8, _, _, _ = makeDataForSmilesOnly("SR-ARE", dicC2I)
+    train_tf9, valid_tf9, test_tf9, pos9, neg9, _, _, _ = makeDataForSmilesOnly("SR-ATAD5", dicC2I)
+    train_tf10, valid_tf10, test_tf10, pos10, neg10, _, _, _ = makeDataForSmilesOnly("SR-HSE", dicC2I)
+    train_tf11, valid_tf11, test_tf11, pos11, neg11, _, _, _ = makeDataForSmilesOnly("SR-MMP", dicC2I)
+    train_tf12, valid_tf12, test_tf12, pos12, neg12, _, _, _ = makeDataForSmilesOnly("SR-p53", dicC2I)
+    pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
+    neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
+else:
+    test_tf2, pos_num, neg_num, listX, listY = makeDataForSmilesOnly_aop("ar", dicC2I)
+
 print("pos/neg:", pos_num, neg_num)
 
 
@@ -238,8 +308,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
         return out2
 
-
-
+"""
 def get_angles(pos, i, d_model_):
     angle_rates = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model_))
     return pos * angle_rates
@@ -253,7 +322,7 @@ def positional_encoding(position, d_model_):
     angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
     pos_encoding = angle_rads[np.newaxis, ...]
     return tf.cast(pos_encoding, dtype=tf.float32)
-
+"""
 
 class CustomFC(tf.keras.layers.Layer):
     def __init__(self, output_bias, d_model_):
@@ -283,6 +352,7 @@ class CustomRSum(tf.keras.layers.Layer):
     def call(self, inputs, dWhich):
         return tf.math.reduce_sum(inputs * dWhich, axis=1)  # only the 1 instnce survives
 
+
 class Encoder(tf.keras.Model):
     def __init__(self, num_layers_, d_model_, num_heads_, dff_, output_bias, rate=0.1, seq_size=None):  # input_vocab and max_vocab are the same
         super(Encoder, self).__init__()
@@ -295,6 +365,7 @@ class Encoder(tf.keras.Model):
         self.dropout = tf.keras.layers.Dropout(rate)
         self.pads1 = tf.constant([[0, 0], [0, 7 - 1], [0, 0]])
         self.conv1 = tf.keras.layers.Conv2D(d_model_, [7, d_model_], strides=1)
+        #self.pos_encoding = positional_encoding(seq_size, self.d_model)
 
         self.FC1 = CustomFC(output_bias, self.d_model)
         self.FC2 = CustomFC(output_bias, self.d_model)
@@ -312,6 +383,7 @@ class Encoder(tf.keras.Model):
     def call(self, x_, whichClass, training, mask_att, justmask):
         # x_.set_shape([None, self.seq_size])
         # adding embedding and position encoding.
+        #x_ += self.pos_encoding[:, :self.seq_size, :]
         x_ = tf.keras.layers.Reshape([self.seq_size, self.d_model, 1])(x_)
         x_ = self.conv1(x_)
         x_ = tf.keras.layers.Reshape([self.seq_size - 7 + 1, self.d_model])(x_)
@@ -330,7 +402,7 @@ class Encoder(tf.keras.Model):
         cl9 = self.FC9(out, self.seq_size)
         cl10 = self.FC10(out, self.seq_size)
         cl11 = self.FC11(out, self.seq_size)
-        cl12 = self.FC12(out, self.seq_size)#batch, 2
+        cl12 = self.FC12(out, self.seq_size)
         x_out = tf.keras.layers.concatenate([cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, cl10, cl11, cl12])#default axis -1 ==> batch, 12
         decideWhich = CustomHot()(whichClass)
         pred_logit = CustomRSum()(x_out, decideWhich)
@@ -350,24 +422,9 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
 
-learning_rate = args.lr  # 0.0001#CustomSchedule(args.d_model)
-optimizer = tf.keras.optimizers.Adam(learning_rate)  # , beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-
-train_loss = tf.keras.metrics.Mean(name='train_loss')
-AUCFunc = tf.keras.metrics.AUC()
-accFunc = tf.keras.metrics.BinaryAccuracy()
-precFunc = tf.keras.metrics.Precision(name='precFunc')
-recallFunc = tf.keras.metrics.Recall(name='recallFunc')
-initial_bias = np.log([pos_num / neg_num])
-#weight_for_0 = tf.convert_to_tensor((1 / neg_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)#not used 
-weight_for_1 = tf.convert_to_tensor((1 / pos_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)
-
-encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, output_bias=initial_bias, rate=args.dropout_rate, seq_size=args.seq_size)
-TC.set_model(encoder)
-
 def loss_function(real, pred_logit, sampleW=None):
     cross_ent = tf.nn.weighted_cross_entropy_with_logits(logits=pred_logit, labels=real, pos_weight=sampleW)
-    return tf.reduce_mean(cross_ent)
+    return tf.reduce_sum(cross_ent)#reduce_mean
 
 
 def create_padding_mask_fp2vec(seq):
@@ -385,7 +442,20 @@ def create_padding_mask_scfp(seq):
     return seq[:, tf.newaxis, tf.newaxis, :], seq  # (batch_size, 1, 1, atom_size)
 
 
+learning_rate = args.lr  # 0.0001#CustomSchedule(args.d_model)
+optimizer = tf.keras.optimizers.Adam(learning_rate)  # , beta_1=0.9, beta_2=0.98, epsilon=1e-9)
 
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+AUCFunc = tf.keras.metrics.AUC()
+accFunc = tf.keras.metrics.BinaryAccuracy()
+precFunc = tf.keras.metrics.Precision(name='precFunc')
+recallFunc = tf.keras.metrics.Recall(name='recallFunc')
+initial_bias = np.log([pos_num / neg_num])
+#weight_for_0 = tf.convert_to_tensor((1 / neg_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)#not used
+weight_for_1 = tf.convert_to_tensor((1 / pos_num)*(pos_num + neg_num)/2.0, dtype=tf.float32)
+
+encoder = Encoder(args.num_layers, args.d_model, args.num_heads, args.dff, output_bias=initial_bias, rate=args.dropout_rate, seq_size=args.seq_size)
+TC.set_model(encoder)
 checkpoint_dir = "trS"+args.current_num+"/cp.ckpt"
 if args.pickle_load == False:
     bit_size = len(dicC2I) #1024
@@ -417,8 +487,9 @@ def eval_step(inp_, real, whichClass):
     recallFunc.update_state(y_true=real, y_pred=pred)
     AUCFunc.update_state(y_true=real, y_pred=pred)
     accFunc.update_state(y_true=real, y_pred=pred)
-    
-def test_step(inp_, real, whichClass, list12):
+ 
+
+def test_step(inp_, real, whichClass):
     inp_padding_mask, justmask = create_padding_mask_fp2vec(inp_)
     logit, pred = encoder(tf.nn.embedding_lookup(embeddings_, inp_), whichClass, False, inp_padding_mask, justmask)
     precFunc.update_state(y_true=real, y_pred=pred)
@@ -426,8 +497,23 @@ def test_step(inp_, real, whichClass, list12):
     AUCFunc.update_state(y_true=real, y_pred=pred)
     accFunc.update_state(y_true=real, y_pred=pred)
     #print(len(logit), len(real))
-    if args.weight_load:
-        list12[whichClass].extend(logit)
+
+
+def indices2chars(listx, dicC2I):#listx shape = whole_size, 200
+    dicI2C = {}
+    for key in dicC2I:
+        dicI2C[dicC2I[key]] = key
+
+    retList = []
+    for instance in listx:
+        tmplist = []
+        for index in instance:
+            if index == 0:#didn't use the 0 as index
+                break
+            tmplist.append(dicI2C[index])
+        retList.append(tmplist)
+    return retList
+
 
 f2w = open("performanceS", "w")
 bestEpoch = 0
@@ -518,7 +604,6 @@ f2w.close()
 
 
 ######testing phase
-testLogits12 = [[] for i in range(12)]
 precFunc.reset_states()
 recallFunc.reset_states()
 AUCFunc.reset_states()
@@ -526,38 +611,43 @@ accFunc.reset_states()
 
 encoder.load_weights(checkpoint_dir)
 print("weights loaded from the epoch:", bestEpoch)
-
-for tf1, tf2, tf3, tf4, tf5, tf6, tf7, tf8, tf9, tf10, tf11, tf12 in itertools.zip_longest(test_tf1, test_tf2, test_tf3, test_tf4, test_tf5, test_tf6,
+if not args._test:
+    for tf1, tf2, tf3, tf4, tf5, tf6, tf7, tf8, tf9, tf10, tf11, tf12 in itertools.zip_longest(test_tf1, test_tf2, test_tf3, test_tf4, test_tf5, test_tf6,
                                      test_tf7, test_tf8, test_tf9, test_tf10, test_tf11, test_tf12):
-    if tf1:
-        test_step(tf1[0], tf1[1], 0, testLogits12)
-    if tf2:
-        test_step(tf2[0], tf2[1], 1, testLogits12)
-    if tf3:
-        test_step(tf3[0], tf3[1], 2, testLogits12)
-    if tf4:
-        test_step(tf4[0], tf4[1], 3, testLogits12)
-    if tf5:
-        test_step(tf5[0], tf5[1], 4, testLogits12)
-    if tf6:
-        test_step(tf6[0], tf6[1], 5, testLogits12)
-    if tf7:
-        test_step(tf7[0], tf7[1], 6, testLogits12)
-    if tf8:
-        test_step(tf8[0], tf8[1], 7, testLogits12)
-    if tf9:
-        test_step(tf9[0], tf9[1], 8, testLogits12)
-    if tf10:
-        test_step(tf10[0], tf10[1], 9, testLogits12)
-    if tf11:
-        test_step(tf11[0], tf11[1], 10, testLogits12)
-    if tf12:
-        test_step(tf12[0], tf12[1], 11, testLogits12)
+        if tf1:
+            test_step(tf1[0], tf1[1], 0)
+        if tf2:
+            test_step(tf2[0], tf2[1], 1)
+        if tf3:
+            test_step(tf3[0], tf3[1], 2)
+        if tf4:
+            test_step(tf4[0], tf4[1], 3)
+        if tf5:
+            test_step(tf5[0], tf5[1], 4)
+        if tf6:
+            test_step(tf6[0], tf6[1], 5)
+        if tf7:
+            test_step(tf7[0], tf7[1], 6)
+        if tf8:
+            test_step(tf8[0], tf8[1], 7)
+        if tf9:
+            test_step(tf9[0], tf9[1], 8)
+        if tf10:
+            test_step(tf10[0], tf10[1], 9)
+        if tf11:
+            test_step(tf11[0], tf11[1], 10)
+        if tf12:
+            test_step(tf12[0], tf12[1], 11)
 
-print('Test prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
+    print('Test prec {:.4f} recall {:.4f} AUC {:.4f}, acc {:.4f}'.format(precFunc.result(), recallFunc.result(),
                                                                      AUCFunc.result(), accFunc.result()))
+
 TC.on_train_end('_')
-if args.pickle_load == False:
-    pickle.dump((embeddings_, dicC2I), open("saved_emb.pkl", "wb"))
-if args.weight_load:
-    pickle.dump(testLogits12, open("logit"+args.current_num,"wb"))
+
+if not args.pickle_load:
+    pickle.dump((embeddings_, dicC2I), open(args.current_num+"saved_emb.pkl", "wb"))
+
+
+
+
+
