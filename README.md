@@ -6,7 +6,7 @@ Original transformer code from: https://github.com/tensorflow/docs/blob/master/s
 The Tox21 data is the same preprocessed version of the paper : Convolutional neural network based on SMILES representation of compounds for detecting chemical motif.
 
 ## Dependency  
-(latest versions will do)  
+(latest versions will suffice)  
 rdkit   
 numpy  
 sklearn  
