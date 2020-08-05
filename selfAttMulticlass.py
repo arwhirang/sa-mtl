@@ -48,7 +48,7 @@ parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length 
 parser.add_argument('--seq_size', '-s', type=int, default=400, help='seq length of smiles fp2vec')
 parser.add_argument('--pickle_load', type=bool, default=False, help='pickle embedding')
 parser.add_argument('--weight_load', type=bool, default=False, help='pickle embedding')
-parser.add_argument('--_test', type=bool, default=False, help='pickle embedding')#True
+parser.add_argument('--aop_test', type=bool, default=False, help='pickle embedding')#True
 parser.add_argument('--current_num', default="for3", help='name says it')
 parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
 parser.add_argument('--num_randoms', type=int, default=5, help='No. of output perceptron (class)')
