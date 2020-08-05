@@ -6,7 +6,7 @@ import time
 import numpy as np
 import os
 import argparse
-from rdkit import Chem
+#from rdkit import Chem
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import pickle
@@ -48,7 +48,7 @@ parser.add_argument('--atomsize', '-c', type=int, default=400, help='max length 
 parser.add_argument('--seq_size', '-s', type=int, default=400, help='seq length of smiles fp2vec')
 parser.add_argument('--pickle_load', type=bool, default=False, help='pickle embedding')
 parser.add_argument('--weight_load', type=bool, default=False, help='pickle embedding')
-parser.add_argument('--aop_test', type=bool, default=False, help='pickle embedding')#True
+parser.add_argument('--_test', type=bool, default=False, help='pickle embedding')#True
 parser.add_argument('--current_num', default="for3", help='name says it')
 parser.add_argument('--n_out', type=int, default=1, help='No. of output perceptron (class)')
 parser.add_argument('--num_randoms', type=int, default=5, help='No. of output perceptron (class)')
@@ -72,7 +72,7 @@ def random_list(x, seed=0):
     np.random.seed(seed)
     np.random.shuffle(x)
 
-
+"""
 def char2indices_no2(listStr, dicC2I):
     listIndices = [0] * args.seq_size
     charlist = listStr
@@ -83,7 +83,7 @@ def char2indices_no2(listStr, dicC2I):
         else:
             listIndices[i] = dicC2I[c]
     return listIndices
-
+"""
 
 def char2indices(listStr, dicC2I):
     listIndices = [0] * args.seq_size
@@ -135,7 +135,7 @@ def makeDataForSmilesOnly(proteinName, dicC2I):
             if splitted[1] == "1":
                 weirdButUseful += 1
             continue
-        listX.append(char2indices_no2(splitted[0], dicC2I))  # length can vary
+        listX.append(char2indices(splitted[0], dicC2I))  # length can vary
         listY.append(float(splitted[1]))
     f.close()
 
@@ -168,27 +168,6 @@ def makeDataForSmilesOnly(proteinName, dicC2I):
     return train_tf, valid_tf, test_tf, pos_num, neg_num, train_x, valid_x, test_x#testlistX
 
 
-def makeDataForSmilesOnly_aop(proteinName, dicC2I):
-    listX, listY = [], []
-    afile = ""
-    if proteinName == "ar":
-        afile = 'aop/cleandata_androgen_ec50_check.csv'
-    f = open(afile, "r")
-    lines = f.readlines()
-    for idx, line in enumerate(lines):
-        if idx == 0:
-            continue
-        splitted = line.split(",")
-        if len(splitted[13]) >= args.seq_size:
-            continue
-        listX.append(char2indices(splitted[13], dicC2I))  # length can vary
-        listY.append(float(splitted[4]))
-    f.close()
-    pos_num, neg_num = 1, 1
-    data_tf = tf.data.Dataset.from_tensor_slices((listX, listY)).batch(args.batchsize)
-    return data_tf, pos_num, neg_num, listX, listY
-
-
 if args.pickle_load:
     embeddings_, dicC2I = pickle.load(open(args.current_num+"saved_emb.pkl", "rb"))
 else:
@@ -196,7 +175,7 @@ else:
 pos_num, neg_num = 0, 0
 
 
-if not args.aop_test:
+if not args._test:
     train_tf1, valid_tf1, test_tf1, pos1, neg1, _, _, _ = makeDataForSmilesOnly("NR-AR-LBD", dicC2I)
     train_tf2, valid_tf2, test_tf2, pos2, neg2, train2, valid2, test2 = makeDataForSmilesOnly("NR-AR", dicC2I)
     train_tf3, valid_tf3, test_tf3, pos3, neg3, _, _, _ = makeDataForSmilesOnly("NR-AhR", dicC2I)
@@ -211,8 +190,6 @@ if not args.aop_test:
     train_tf12, valid_tf12, test_tf12, pos12, neg12, _, _, _ = makeDataForSmilesOnly("SR-p53", dicC2I)
     pos_num = pos1 + pos2 + pos3 + pos4 + pos5 + pos6 + pos7 + pos8 + pos9 + pos10 + pos11 + pos12
     neg_num = neg1 + neg2 + neg3 + neg4 + neg5 + neg6 + neg7 + neg8 + neg9 + neg10 + neg11 + neg12
-else:
-    test_tf2, pos_num, neg_num, listX, listY = makeDataForSmilesOnly_aop("ar", dicC2I)
 
 print("pos/neg:", pos_num, neg_num)
 
