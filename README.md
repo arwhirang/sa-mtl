@@ -1,5 +1,5 @@
 # SA-MTL
-code repository for ICPR 2020 paper : Predicting Chemical Properties using Self-Attention Multi-task Learning based on SMILES Representation (under review) 
+code repository for ICPR 2020 poster paper : Predicting Chemical Properties using Self-Attention Multi-task Learning based on SMILES Representation
 
 Original transformer code from: https://github.com/tensorflow/docs/blob/master/site/en/tutorials/text/transformer.ipynb
 
